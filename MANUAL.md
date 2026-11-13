@@ -273,6 +273,10 @@ Six themes, each with dozens of values:
 Both the **Custom** box and the **generated prompt** preview scroll
 vertically when their contents overflow.
 
+![Prompt Generator — six themed dropdowns with Randomize, Build Prompt, and the preview area](https://github.com/nww02/OpenRouter-Image-Generator/blob/master/Image%20Generator/Screenshots/Screenshot_20261113_012955.png?raw=true)
+<br>
+*Above: the Prompt Generator dialog with humour, style, topic, colour, time of day and mood dropdowns, plus controls to randomise and build.*
+
 Every Build Prompt call costs a tiny amount (fractions of a cent) which is
 added to the session total.
 

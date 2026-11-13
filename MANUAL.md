@@ -65,6 +65,10 @@ where your image windows live, and a status bar.
 | | Preferences... | `Ctrl+,` | Open the Preferences dialog |
 | **About** | About | | Show the about box |
 
+![Main image document window — an image on the canvas with history, prompt and controls](https://raw.githubusercontent.com/nww02/OpenRouter-Image-Generator/refs/heads/master/Image%20Generator/Screenshots/Screenshot_20261113_011210.png)
+<br>
+*Above: an image document window showing the history panel, canvas, prompt textarea and the controls row (⋯, Build Prompt, Image→Prompt, Prompt→Image, Save).*
+
 ### Image windows
 
 Each image document is a floating window inside the MDI area. Windows can be:
@@ -110,6 +114,10 @@ section).
 When you pick a generation model, the app queries OpenRouter for that model's
 supported parameters and stores them, so image windows know what settings the
 model accepts. This happens automatically; you never see it.
+
+![Preferences dialog — API key, model selection with Browse buttons, and theme picker](https://raw.githubusercontent.com/nww02/OpenRouter-Image-Generator/refs/heads/master/Image%20Generator/Screenshots/Screenshot_20261113_011407.png)
+<br>
+*Above: the Preferences window where you configure your API key, choose your models and set the theme.*
 
 ### Theme
 
@@ -195,6 +203,10 @@ Press **OK** to apply your choices to this window; **Cancel** discards them.
 Parameters are remembered per window and saved into the image's metadata
 when you save.
 
+![Model Parameters dialog — model selector at the top, per-parameter checkboxes and controls below](https://raw.githubusercontent.com/nww02/OpenRouter-Image-Generator/refs/heads/master/Image%20Generator/Screenshots/Screenshot_20261113_011308.png)
+<br>
+*Above: the Model Parameters window showing the per-window model override and the list of configurable parameters for the selected model.*
+
 ---
 
 ## 6. The Model Browser
@@ -220,6 +232,10 @@ choosing a vision model, and so on).
 Each row shows the model's display name, its ID, and its **pricing** (per
 image and/or per token) on the right. Click a model to select it, then
 **Select** to use it — or **Cancel** to keep what you had.
+
+![Model Browser — search, filter and browse all OpenRouter image models with pricing](https://raw.githubusercontent.com/nww02/OpenRouter-Image-Generator/refs/heads/master/Image%20Generator/Screenshots/Screenshot_20261113_011341.png)
+<br>
+*Above: the Model Browser listing available image-generation models with their IDs and pricing.*
 
 ---
 

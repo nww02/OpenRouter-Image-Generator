@@ -10,6 +10,10 @@ work, and it's not aiming to be a product. But if you have an
 [OpenRouter](https://openrouter.ai) account, it makes generating AI images
 nicely painless — and you're welcome to build it and try it out.
 
+Want to see it in action? Here's the main image document window (set to 800×600):
+
+[![Main image document window — the heart of the app](https://github.com/nww02/OpenRouter-Image-Generator/blob/master/Image%20Generator/Screenshots/Screenshot_20261113_011210.png?raw=true)](https://github.com/nww02/OpenRouter-Image-Generator/blob/master/Image%20Generator/Screenshots/Screenshot_20261113_011210.png?raw=true)
+
 ## What it does
 
 ### 🖼️ Generate images from prompts

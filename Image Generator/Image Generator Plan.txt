@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-A multiple-document interface (MDI) desktop application that allows users to generate images using OpenRouter-hosted AI image-generation models. The user can have multiple "image document" windows open simultaneously, each with its own generation history, canvas, prompt, and dimension controls. The application supports saving/loading images with companion prompt files, browsing available models via the OpenRouter API, and includes an AI-assisted prompt generator.
+A multiple-document interface (MDI) desktop application that allows users to generate images using OpenRouter-hosted AI image-generation models. The user can have multiple "image document" windows open simultaneously, each with its own generation history, canvas, prompt, and model parameters. Each window carries its own copy of the generation model — override it per-window without affecting the default. The application discovers model parameters from the API at runtime (resolutions, aspect ratios, quality levels, etc.) and builds a per-window settings panel from them. It supports saving/loading images with companion prompt metadata, browsing available models via the OpenRouter API, and includes an AI-assisted prompt generator.
 
 ---
 
@@ -36,19 +36,46 @@ Image Generator/
 │   ├── ImageIOService.cs               (save/load PNG + companion .prompt file)
 │   └── PreferencesService.cs           (load/save preferences to disk, JSON or OS keychain)
 │
-├── Windows/
+├── Views/                              (all view files)
 │   ├── MainWindow.axaml / .axaml.cs    (main application window with MenuBar & MDI container)
-│   ├── ImageDocumentView.axaml / .axaml.cs (individual image document: canvas, history, prompt, controls)
-│   ├── PreferencesDialog.axaml/.axaml.cs (API key, model selection)
+│   ├── ContentDialogs/                 (dialog helpers)
+│   ├── Documents/
+│   │   └── ImageDocumentView.axaml/.axaml.cs (individual image document: canvas, history, prompt, controls)
+│   ├── PreferencesDialog.axaml/.axaml.cs (API key, model selection, theme)
 │   ├── ModelBrowserDialog.axaml/.axaml.cs (browse OpenRouter models, select one)
+│   ├── ModelParametersDialog.axaml/.axaml.cs (per-window model override + parameter editor)
 │   ├── PromptGeneratorDialog.axaml/.axaml.cs (dropdowns for prompt generation)
 │   ├── AboutDialog.axaml / .axaml.cs   (simple about dialog)
+│   ├── ErrorDialog.axaml / .axaml.cs   (API error display)
 │   └── QuitConfirmDialog.axaml/.axaml.cs (unsaved changes confirmation)
 │
-├── Components/
-│   ├── HistoryPanel.axaml / .axaml.cs  (reusable vertical stack of thumbnails)
-│   ├── ImageCanvas.cs                  (custom control: renders image or black fill)
-│   └── DimensionsBar.axaml/.axaml.cs   (Width/Height labels + inputs)
+├── ViewModels/
+│   ├── MainWindowViewModel.cs          (main window logic, status bar, preferences wiring)
+│   ├── DockFactory.cs                  (MDI layout builder, document create/load/close)
+│   ├── Documents/
+│   │   └── ImageDocumentViewModel.cs   (per-document: generation, history, model params, save/load)
+│   ├── ModelBrowserDialogViewModel.cs   (model listing, search, filter)
+│   ├── ModelParametersDialogViewModel.cs (parameter rows: enum dropdowns, range validation, commit)
+│   ├── PromptGeneratorDialogViewModel.cs (prompt generator logic, LLM prompt assembly)
+│   ├── PreferencesDialogViewModel.cs   (preferences binding and save)
+│   └── ViewModelBase.cs                (base for MVVM)
+│
+├── Models/
+│   ├── GenerationRecord.cs             (data: image bytes, prompt, model, params, cost, dimensions, timestamp)
+│   ├── OpenRouterModels.cs             (API response models: model listing, generation, chat, credits)
+│   ├── ProviderModels.cs               (provider-agnostic interfaces: IImageGenerationProvider, etc.)
+│   ├── ModelParameters.cs              (parameter descriptors, values, kinds, user-facing helpers)
+│   └── AppPreferences.cs              (data: api key, gen model, vision model, prompt gen model, params, theme)
+│
+├── Services/
+│   ├── OpenRouterProvider.cs           (OpenRouter HTTP implementation: generate, list models, chat, vision, credits)
+│   ├── OpenAICompatibleProvider.cs     (generic OpenAI-compatible provider for local/Ollama/LM Studio)
+│   ├── ProviderFactory.cs             (creates the right provider from preferences)
+│   ├── ImageIOService.cs              (save/load PNG + companion .prompt metadata file)
+│   ├── PreferencesService.cs          (load/save preferences to disk)
+│   └── IImageIOService.cs / IPreferencesService.cs  (service interfaces)
+│
+├── Components/                         (not used as separate files; functionality inlined in Views)
 │
 └── Utils/
     ├── HttpClient.cs                   (shared HTTP client wrapper)
@@ -61,11 +88,16 @@ Image Generator/
 | Concern | Pattern |
 |---------|---------|
 | MDI with floating windows | **Primary:** `Dock for Avalonia` (NuGet: `Dock.Avalonia`, `Dock.Model`) with `DockSettings.UseManagedWindows = true` for **true in-app free-floating MDI**. Each document is a managed window with its own draggable titlebar — can be moved **anywhere** within the main window's client area (not just docked to edges). Supports: free positioning, minimize/maximize/close buttons on titlebar, window cascading/tile, tab groups when docked together, z-order management. This is classic MDI (like old WinForms MDI or Visual Studio 2005). |
-| Async API calls | `async Task` / `await` with `HttpClient`. No blocking `.Result`/`.Wait()`. Return to UI thread via `Dispatcher.UIThread.InvokeAsync()` when needed from background threads. |
+| Async API calls | `async Task` / `await` with `HttpClient`. No blocking `.Result`/`.Wait()`. UI updates happen naturally via CommunityToolkit property changes. |
 | Preferences persistence | JSON file via `System.Text.Json` in platform app data folder: `Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) + "/ImageGenerator/preferences.json"`. |
-| Model data / state | `ObservableCollection<ImageWindowViewModel>` held in MainWindowViewModel; each ImageWindow has its own `ObservableCollection<GenerationRecord>` history. |
-| Unsaved tracking | Each `ImageWindowViewModel` has `bool IsDirty` property; MainWindow iterates all VMs before quit. |
-| MVVM | Use `CommunityToolkit.Mvvm` (NuGet) for `ObservableObject`, `[ObservableProperty]`, `[RelayCommand]`, `[AsyncRelayCommand]` |
+| ViewModel structure | `MainWindowViewModel` holds a `DockFactory` which manages `ImageDocumentViewModel` instances as MDI documents. Each image window has its own `ObservableCollection<GenerationRecordViewModel>` history and `ObservableCollection<ModelParameterValue>` for parameters. |
+| Model parameter discovery | On model selection, the app calls `provider.GetModelParameterDescriptorsAsync()` to fetch the model's schema from the API. Descriptors (enum, range, boolean) are cached in preferences. Each window gets a deep copy. |
+| Per-window model copy | Each `ImageDocumentViewModel` has its own `GenerationModel` property, copied from the configured default on creation. The Model Parameters dialog can override it per-window, re-fetching that model's parameter schema from the API. |
+| Parameter save/restore | Generation records store the model name and parameter values (keyed by name). `.prompt` sidecar files persist them. On load, the window adopts the sidecar's model and restores the values onto that model's schema. |
+| Unsaved tracking | Each `ImageDocumentViewModel` has `bool IsDirty` property; DockFactory checks all VMs before closing a document or quitting. |
+| Status bar | Live updates: account balance (refreshed on startup and after each billable request), open window count, session spend total. Costs from all operations (image gen, prompt building, vision analysis) aggregate into a single session counter that resets on program load. |
+| History tooltips | Hover any thumbnail to see: timestamp, cost in USD, model name, and first 200 chars of the prompt. |
+| MVVM | `CommunityToolkit.Mvvm` (NuGet) for `ObservableObject`, `[ObservableProperty]`, `[RelayCommand]`, `[AsyncRelayCommand]` |
 
 ### 2.3 Dependency Additions (csproj)
 
@@ -88,225 +120,110 @@ For .NET/C# with Avalonia, the built-in `HttpClient` from `System.Net.Http` hand
 
 ### 3.1 MainWindow (MainWindow.axaml / MainWindow.axaml.cs)
 
-**Layout (AXAML):**
-```xml
-<Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:dock="clr-namespace:Dock.Avalonia.Controls;assembly=Dock.Avalonia"
-        xmlns:dockModel="clr-namespace:Dock.Model.Controls;assembly=Dock.Model"
-        x:Class="Image_Generator.MainWindow"
-        Title="AI Image Generator">
-
-    <DockPanel>
-        <!-- Main Menu Bar -->
-        <Menu DockPanel.Dock="Top">
-            <MenuItem Header="_File">
-                <MenuItem Header="_Load" Command="{Binding LoadCommand}" Gesture="Ctrl+L"/>
-                <Separator/>
-                <MenuItem Header="_Quit" Command="{Binding QuitCommand}" Gesture="Ctrl+Q"/>
-            </MenuItem>
-            <MenuItem Header="_Edit">
-                <MenuItem Header="_New Image" Command="{Binding NewImageCommand}" Gesture="Ctrl+N"/>
-                <MenuItem Header="_Preferences..." Command="{Binding PreferencesCommand}" Gesture="Ctrl+,"/>
-            </MenuItem>
-            <MenuItem Header="_About">
-                <MenuItem Header="_About" Command="{Binding AboutCommand}"/>
-            </MenuItem>
-        </Menu>
-
-        <!-- MDI Container with Managed Windows -->
-        <dock:DockControl x:Name="DockControl"
-                          Factory="{Binding Factory}"
-                          Layout="{Binding Layout}"
-                          EnableManagedWindowLayer="True"
-                          ShowDockablePreviewOnDrag="True"
-                          DragPreviewOpacity="0.7">
-        </dock:DockControl>
-    </DockPanel>
-</Window>
-```
-
 **Responsibilities:**
 - Owns the `DockControl` from `Dock.Avalonia` which serves as the MDI container
-- Manages a `Dock.Model.Core.IDockFactory` to create document windows (`ProportionalDock` for tabbed groups, `DocumentDock` for documents)
-- Maintains `ObservableCollection<IDockable>` for open documents
-- Handles menu actions (Load, Quit, New Image, Preferences, About)
-- Tracks unsaved state across all document view models
-- On Quit: iterate all documents, if any `IsDirty`, show confirmation
-- On Load: create new document via factory, load image+prompt into it, add to layout
-- Configure `DockSettings.UseManagedWindows = true` and `DockSettings.EnableWindowMagnetism = true` at startup
+- Uses `DockFactory` (in ViewModels/) to manage layout — creates document windows via `DocumentDock` with `LayoutMode = DocumentLayoutMode.Mdi`
+- MainWindowViewModel handles menu actions (Load, Quit, New Image, Preferences, About)
+- Status bar at the bottom: balance, window count, session spend (all bound to MainWindowViewModel)
+- On Quit: DockFactory iterates all documents, if any `IsDirty`, shows confirmation asynchronously
+- On Load: creates new document via DockFactory, loads image+metadata, adds to layout
+- Window title: `"AI Image Generator"`
+- Configure `DockSettings.UseManagedWindows = true` and `DockSettings.EnableWindowMagnetism = true` at startup (in App.axaml.cs)
 
-**MDI Document Structure:**
-Each image document is a `ManagedDockWindowDocument` (implements `IMdiDocument`) wrapping an `ImageDocumentViewModel`. The managed window has:
-- **Draggable titlebar** with document title, minimize/maximize/close buttons
-- **Free-floating** — can be positioned anywhere in the main window's client area (not restricted to edges)
-- **Z-order management** — clicking brings to front; supports cascade/tile via `MdiLayoutHelper`
-- **Tab groups** — dragging one window onto another's tab area creates a tab group
-- **Persistable state** — position, size, and dock state can be saved/restored
-- **Keyboard focus** — each managed window handles its own focus scope
+**DockFactory (not a separate Window class — the ViewModel owns the dock):**
+- `DockFactory` extends `Dock.Model.Mvvm.Factory` and implements `CreateLayout()`, `AddDocument()`, `CloseDockable()`
+- Creates a `DocumentDock` with `LayoutMode = DocumentLayoutMode.Mdi`
+- Each image document is a `Document` (from `Dock.Model.Mvvm.Controls`) wrapping an `ImageDocumentViewModel`
+- Documents are free-floating managed windows with draggable titlebars, minimize/maximize/close buttons
+- Supports tab groups, z-order management, and window magnetism
+- Each document gets: per-window model copy (from preferences default), parameter schema population, minimum window size (560×400), and cost-report wiring to the status bar
+- Loaded images with a different model get their schema fetched from the API before parameters are restored (`LoadSchemaAndRestoreAsync`)
+- DockFactory fires `SessionCostAdded` and `WindowCountChanged` events consumed by MainWindowViewModel's status bar
 
-**Key Dock Settings (set in App.axaml.cs OnFrameworkInitializationCompleted):**
-```csharp
-DockSettings.UseManagedWindows = true;              // Enable in-app floating windows
-DockSettings.EnableWindowMagnetism = true;          // Snap windows together when dragging near each other
-DockSettings.BringWindowsToFrontOnDrag = true;      // Auto-bring dragged window to front
-DockSettings.ShowDockablePreviewOnDrag = true;      // Show dock preview overlay
-DockSettings.DragPreviewOpacity = 0.7;              // Semi-transparent drag preview
-```
-
-The `DockControl` template must include a `ManagedWindowLayer` named `PART_ManagedWindowLayer` to host the floating windows.
+**MainWindowViewModel:**
+- Owns the DockFactory instance; builds the layout on construction
+- Creates one blank image document on startup
+- Fetches the configured model's parameter schema on first load (`EnsureModelParametersAsync`) and caches it in preferences
+- Handles `RefreshBalanceAsync()`: fetches account credit from OpenRouter on startup and after every billable request
+- Handles preferences save: copies all fields back, re-fetches parameter schema if the generation model changed
+- Applies theme immediately on Save
 
 ### 3.2 Image Document View (ImageDocumentView.axaml / .axaml.cs)
 
-This is a **UserControl** (not a Window) that serves as the content of each MDI document tab. It is hosted inside a `DocumentDock` from `Dock.Model`.
+**Location:** `Views/Documents/ImageDocumentView.axaml` and `.axaml.cs`
+This is a **UserControl** (not a Window) that serves as the content of each MDI document. Hosted inside a `DocumentDock` from `Dock.Model`.
 
-**Layout (AXAML):**
-```xml
-<UserControl xmlns="https://github.com/avaloniaui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="Image_Generator.Views.ImageDocumentView"
-             DataContext="{Binding}">
+**Layout (AXAML) — key structure:**
+- 2-column grid (180px history | * canvas+controls), 3 rows (3* canvas | Auto splitter | 1* controls panel)
+- History panel (left, spans all rows): `ScrollViewer` → `ItemsControl` → vertical `StackPanel` of thumbnails
+  - Each item: a `Button` wrapping a `Border` (with `historyItem` class, selected has `DodgerBlue` border) → `Image` (160px wide) + `TextBlock` timestamp
+  - ToolTip: bound to `TooltipText` (shows timestamp, cost, model, prompt excerpt)
+  - Click: `RestoreRecordCommand` with `CommandParameter="{Binding}"`
+- Canvas (top-right): `Grid` containing `Border`(black background) + `Image`(Stretch=Uniform) + loading overlay (`ProgressBar` + "Generating..." text, visible when `IsGenerating`)
+- Splitter (middle-right): `GridSplitter` with `ResizeDirection="Rows"`, `ResizeBehavior="PreviousAndNext"`
+- Controls panel (bottom-right): `Grid` with two rows (prompt `*` | buttons `Auto`)
+  - Prompt: `TextBox` with `AcceptsReturn`, `TextWrapping="Wrap"`, placeholder "Enter your prompt here..."
+  - Buttons row: `StackPanel` horizontal, right-aligned:
+    - `"⋯"` button → `EditModelParametersCommand` (opens ModelParametersDialog)
+    - `"Build Prompt"` → `GeneratePromptCommand`
+    - `"Image->Prompt"` → `GeneratePromptFromImageCommand`
+    - `"Prompt->Image"` → `GenerateImageCommand`
+    - `"Save"` → `SaveImageCommand`
 
-    <Grid RowDefinitions="*,Auto,Auto,Auto" ColumnDefinitions="180,*">
-        <!-- Left: History Panel -->
-        <Border Grid.Row="0" Grid.RowSpan="4" Grid.Column="0" Margin="4"
-                BorderBrush="Gray" BorderThickness="0,0,1,0">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <ItemsControl ItemsSource="{Binding History}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Orientation="Vertical"/>
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border Margin="4" BorderBrush="LightGray" BorderThickness="1" CornerRadius="2"
-                                    ToolTip.Tip="{Binding Timestamp, StringFormat='{0:HH:mm:ss}'}"
-                                    Background="{Binding IsSelected, Converter={StaticResource BoolToBrushConverter}}">
-                                <StackPanel>
-                                    <Image Source="{Binding Thumbnail}" Width="160" Stretch="Uniform"/>
-                                    <TextBlock Text="{Binding Timestamp, StringFormat='{0:HH:mm:ss}'}"
-                                               FontSize="10" HorizontalAlignment="Center" Margin="0,2"/>
-                                </StackPanel>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
-        </Border>
+**Minimum window size:** 560×400 (set in DockFactory.AddDocument — 180px history + 320px canvas column + margins, and tall enough for titlebar + canvas + splitter + controls)
 
-        <!-- Center: Main Canvas Area -->
-        <Border Grid.Row="0" Grid.Column="1" Background="Black" Margin="8">
-            <Image Source="{Binding CurrentImageBitmap}" Stretch="Uniform" />
-        </Border>
-
-        <!-- Dimensions Bar -->
-        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="8,4" Spacing="12">
-            <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                <TextBlock Text="Width:" VerticalAlignment="Center"/>
-                <TextBox Text="{Binding ImageWidth}" Width="80"/>
-            </StackPanel>
-            <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                <TextBlock Text="Height:" VerticalAlignment="Center"/>
-                <TextBox Text="{Binding ImageHeight}" Width="80"/>
-            </StackPanel>
-        </StackPanel>
-
-        <!-- Prompt Input -->
-        <TextBox Grid.Row="2" Grid.Column="1" Margin="8,4"
-                 Text="{Binding CurrentPrompt}"
-                 AcceptsReturn="True"
-                 TextWrapping="Wrap"
-                 Height="80"
-                 Watermark="Enter your prompt here..."/>
-
-        <!-- Button Row -->
-        <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal"
-                    HorizontalAlignment="Right" Margin="8,4" Spacing="8">
-            <Button Content="Generate a Prompt" Command="{Binding GeneratePromptCommand}"/>
-            <Button Content="Generate from Image" Command="{Binding GeneratePromptFromImageCommand}"
-                    IsEnabled="{Binding HasCurrentImage}"/>
-            <Button Content="Generate" Command="{Binding GenerateImageCommand}"
-                    IsEnabled="{Binding !IsGenerating}"/>
-            <Button Content="Save" Command="{Binding SaveImageCommand}"
-                    IsEnabled="{Binding HasCurrentImage}"/>
-        </StackPanel>
-    </Grid>
-</UserControl>
-```
-
-**ImageCanvas (custom control for rendering):**
-- Extends `Control` from Avalonia
-- Overrides `protected override void Render(DrawingContext context)`
-- Draws the stored `Bitmap` via `context.DrawImage(bitmap, sourceRect, destRect)` or fills black background if null
-- Exposes property: `Bitmap? CurrentImage` (with `InvalidateVisual()` call in setter to trigger re-render)
-
-**HistoryPanel:**
-- `ScrollViewer` wrapping an `ItemsControl` with `StackPanel` ItemsPanel (vertical)
-- Each item is a Border containing an Image thumbnail (~160px wide) + timestamp
-- DataTemplate binds to `GenerationRecordViewModel` with `Thumbnail` (Bitmap) and `Timestamp`
-- On click: fires `RestoreRecordCommand` to parent ViewModel
-- Highlight the currently-displayed record via `IsSelected` property
-
-**ViewModel (ImageDocumentViewModel):**
+**ViewModel (ImageDocumentViewModel) — in ViewModels/Documents/:**
 ```csharp
-public partial class ImageDocumentViewModel : ObservableObject, IDocument
+public partial class ImageDocumentViewModel : Document  // extends Dock.Model.Mvvm.Controls.Document
 {
-    private readonly OpenRouterService _openRouterService;
     private readonly IPreferencesService _preferencesService;
+    private readonly AppPreferences _preferences;
+    private readonly ProviderFactory _providerFactory;
+    private readonly IImageIOService _imageIOService;
 
-    // Title shown in MDI tab/titlebar
-    public string Title => CurrentRecord?.IsSaved == true
-        ? $"Saved: {CurrentRecord.Timestamp:HH:mm:ss}"
-        : "Untitled *";
-
-    // Can this document be closed?
-    public bool CanClose => true;
+    // Per-window model copy. Copied from the configured default on creation;
+    // the Model Parameters dialog can override it per-window (re-fetching
+    // that model's parameters from the API). Generation uses this, not config.
+    [ObservableProperty] private string _generationModel = string.Empty;
 
     // History of generated images for this document
     public ObservableCollection<GenerationRecordViewModel> History { get; } = new();
 
-    // Current record being displayed
-    [ObservableProperty] private GenerationRecordViewModel? _currentRecord;
+    // This window's copy of the generation model's parameters
+    public ObservableCollection<ModelParameterValue> ModelParameters { get; } = new();
 
-    // Is there an unsaved generation?
+    // Current record, prompt, image
+    [ObservableProperty] private GenerationRecordViewModel? _currentRecord;
+    [ObservableProperty] private string _currentPrompt = string.Empty;
+    [ObservableProperty] private Bitmap? _currentImageBitmap;
+    [ObservableProperty] private bool _isGenerating;
     [ObservableProperty] private bool _isDirty;
 
-    // Prompt input
-    [ObservableProperty] private string _currentPrompt = string.Empty;
-
-    // Dimensions
-    [ObservableProperty] private int _imageWidth = 1024;
-    [ObservableProperty] private int _imageHeight = 1024;
-
-    // Current image as Bitmap for display
-    [ObservableProperty] private Bitmap? _currentImageBitmap;
-
-    // Loading state
-    [ObservableProperty] private bool _isGenerating;
-
-    // Computed properties
-    public bool HasCurrentImage => CurrentImageBitmap != null;
+    // Raised when a billable call completes — forwards to session total
+    public event System.Action<double?>? CostReported;
 
     // Commands
-    [RelayCommand]
-    private void RestoreRecord(GenerationRecordViewModel record) { ... }
+    [RelayCommand] private void RestoreRecord(GenerationRecordViewModel record) { ... }
+    [AsyncRelayCommand] private async Task GenerateImageAsync() { ... }
+    [AsyncRelayCommand] private async Task SaveImageAsync() { ... }
+    [RelayCommand] private async Task EditModelParametersAsync() { ... }
+    [AsyncRelayCommand] private async Task GeneratePromptAsync() { ... }
+    [AsyncRelayCommand] private async Task GeneratePromptFromImageAsync() { ... }
 
-    [AsyncRelayCommand]
-    private async Task GenerateImage() { ... }
+    // Loads an image from File → Load (restores model, parameters, cost from sidecar)
+    public void LoadFromImage(byte[] imageData, string? prompt, string? model, ...) { ... }
 
-    [AsyncRelayCommand]
-    private async Task SaveImage() { ... }
+    // Applies parameter values deferred from LoadFromImage (after schema fetch)
+    public void ApplyPendingParameterRestore() { ... }
+    public void ApplyParameterValues(Dictionary<string, string?>? values) { ... }
+    public Dictionary<string, string?> GetParameterValues() => ...;
 
-    [RelayCommand]
-    private void GeneratePrompt() { ... }
-
-    [AsyncRelayCommand]
-    private async Task GeneratePromptFromImage() { ... }
+    // Re-reads the current model's parameter schema from the API
+    public async Task<bool> ReloadModelParametersAsync() { ... }
 }
 ```
 
-**GenerationRecordViewModel (for history items):**
+**GenerationRecordViewModel (history items):**
 ```csharp
 public partial class GenerationRecordViewModel : ObservableObject
 {
@@ -315,11 +232,8 @@ public partial class GenerationRecordViewModel : ObservableObject
 
     [ObservableProperty] private bool _isSelected;
 
-    public GenerationRecordViewModel(GenerationRecord record)
-    {
-        Record = record;
-        Thumbnail = ImageUtils.CreateThumbnail(record.ImageData, 160);
-    }
+    // Tooltip showing timestamp, cost, model, prompt (first 200 chars)
+    public string TooltipText => string.Join("\n", lines);
 }
 ```
 
@@ -338,6 +252,45 @@ public class GenerationRecord
     public int Height { get; set; } = 1024;
     public DateTime Timestamp { get; init; } = DateTime.Now;
     public bool IsSaved { get; set; }
+
+    /// <summary>The model that generated this image (empty when unknown).</summary>
+    public string Model { get; set; } = string.Empty;
+
+    /// <summary>USD cost as reported by the API's usage.cost (null when unavailable).</summary>
+    public double? Cost { get; set; }
+
+    /// <summary>Generation parameters keyed by name (saved/restored with the image).</summary>
+    public Dictionary<string, string?> Parameters { get; set; } = new();
+}
+```
+
+**ModelParameterDescriptor / ModelParameterValue (in Models/ModelParameters.cs):**
+```csharp
+public enum ModelParameterKind { Enum, Range, Boolean }
+
+public class ModelParameterDescriptor
+{
+    public string Name { get; set; } = "";
+    public ModelParameterKind Kind { get; set; }
+    public List<string> Values { get; set; } = new();
+    public double? Min { get; set; }
+    public double? Max { get; set; }
+}
+
+public class ModelParameterValue : ObservableObject
+{
+    public ModelParameterDescriptor Descriptor { get; }
+    public string? Value { get; set; }  // null = "use model default"
+}
+
+public static class ModelParameters
+{
+    // Parameters hidden from the UI (plumbing like "provider", "stream", "size"…)
+    public static bool IsUserFacing(ModelParameterDescriptor d) => ...;
+    // Mandatory parameters ("resolution", "aspect_ratio"…) — checkbox locked on
+    public static bool IsMandatory(string name) => ...;
+    // Converts a user value to the JSON request type (string→long for seeds, etc.)
+    public static object? ToRequestValue(string name, string? value) => ...;
 }
 ```
 
@@ -391,9 +344,29 @@ namespace Image_Generator.Models;
 
 public class AppPreferences
 {
-    public string ApiKey { get; set; } = string.Empty;
-    public string GenerationModel { get; set; } = "stabilityai/stable-diffusion-3.5";
-    public string VisionModel { get; set; } = "openai/gpt-4o";
+    // Provider selection
+    public string SelectedProviderId { get; set; } = "openrouter";
+
+    // OpenRouter settings
+    public string OpenRouterApiKey { get; set; } = string.Empty;
+    public string OpenRouterGenerationModel { get; set; } = "stabilityai/stable-diffusion-3.5";
+    public string OpenRouterVisionModel { get; set; } = "openai/gpt-4o";
+    public string OpenRouterPromptGenModel { get; set; } = "openai/gpt-4o-mini";
+
+    // Custom provider settings (for Ollama, LM Studio, LocalAI, custom endpoints)
+    public string CustomProviderName { get; set; } = "Custom";
+    public string CustomProviderBaseUrl { get; set; } = "http://localhost:11434/v1";
+    public string CustomProviderApiKey { get; set; } = "";
+    public string CustomGenerationModel { get; set; } = "";
+    public string CustomVisionModel { get; set; } = "";
+
+    // Cached model parameter schema (fetched from the API on model selection,
+    // stored so startup doesn't need to re-fetch)
+    public List<ModelParameterDescriptor> OpenRouterGenerationModelParameters { get; set; } = new();
+    public string OpenRouterGenerationModelParametersFor { get; set; } = "";
+
+    // UI theme
+    public string Theme { get; set; } = "System";
 }
 ```
 
@@ -454,12 +427,22 @@ public class PromptGenerationOptions
 
 | Menu | Item | Accelerator | Action |
 |------|------|-------------|--------|
-| File | Load | Ctrl+L | Open file dialog for PNG, load companion prompt, create new ImageWindow |
+| File | Load | Ctrl+L | Open file dialog for PNG, load companion prompt + metadata, create new ImageWindow |
 | File | (separator) | | |
 | File | Quit | Ctrl+Q | Check dirty windows, confirm if needed, exit |
 | Edit | New Image | Ctrl+N | Create blank ImageWindow in MDI |
 | Edit | Preferences | Ctrl+, | Open PreferencesDialog |
 | About | About | | Show AboutDialog |
+
+### 3.5 Per-Window Controls (inside each ImageDocumentView)
+
+| Button | Command | Purpose |
+|--------|---------|---------|
+| **⋯** | `EditModelParametersCommand` | Opens Model Parameters dialog for this window — override the generation model and set per-parameter values |
+| **Build Prompt** | `GeneratePromptCommand` | Opens the Prompt Generator dialog with themed dropdowns |
+| **Image→Prompt** | `GeneratePromptFromImageCommand` | Sends current canvas image to the vision model, replaces prompt with the description |
+| **Prompt→Image** | `GenerateImageCommand` | Generates an image from the current prompt using the window's model and parameters |
+| **Save** | `SaveImageCommand` | Saves the current image and its metadata (prompt, model, parameters, cost) as PNG + `.prompt` sidecar |
 
 ---
 
@@ -759,60 +742,96 @@ These prices are shown in the ModelBrowserDialog as formatted strings.
 
 ### 5.1 New Image Flow
 1. User clicks `Edit > New Image` (or `Ctrl+N`)
-2. MainWindow instantiates a new `ImageDocumentViewModel`
-3. ImageDocument appears as a floating managed window in the MDI container
-4. Canvas shows black fill
-5. History panel shows "(no generations yet)" text
-6. Width defaults to 1024, Height defaults to 1024
+2. DockFactory instantiates a new `ImageDocumentViewModel`, copies the configured default generation model into it
+3. Document appears as a free-floating managed window in the MDI container
+4. Canvas shows black fill (no image yet)
+5. Parameter schema is populated from preferences (model's cached descriptors); all values start unset (model defaults)
+6. History panel is empty
 7. Prompt textarea is empty
 
 ### 5.2 Generate Image Flow
-1. User enters prompt, adjusts width/height
-2. User clicks `Generate`
-3. Generate button is disabled and shows "Generating..." text
-4. Service calls OpenRouter API with the prompt and dimensions
-5. On success:
-   - Response image is decoded to Avalonia Image
-   - A new `GenerationRecord` is created with image, prompt, dimensions, timestamp
-   - Record is added to `history` list
-   - Canvas updates to show the new image
-   - History panel updates: new thumbnail prepended/added, all thumbnails refreshed
-   - `isDirty` flag set to true
-   - Generate button re-enabled
-6. On error:
-   - Error message displayed in a status bar or popup
-   - Generate button re-enabled
+1. User enters prompt into the prompt textarea
+2. (Optional) User opens the Model Parameters dialog (⋯) to set resolution, aspect ratio, seed, etc.
+3. User clicks `Prompt->Image`
+4. Prompt->Image button is disabled while generating; a dimmed overlay with progress bar + "Generating..." text appears over the canvas
+5. Provider called with: prompt, window's model (`GenerationModel`), window's parameter values (non-null only)
+6. On success:
+   - Response image decoded via `ImageUtils.BytesToBitmap()`
+   - Actual output dimensions read from the decoded bitmap
+   - A new `GenerationRecord` is created with image, prompt, model, parameters, cost, timestamp, dimensions
+   - Record added to `History` list
+   - Canvas updates to show the new image, thumbnail generated at 160px wide
+   - `IsDirty` flag set to true, title updates (adds `*`)
+   - `CostReported` event fires → forwarded to DockFactory → MainWindowViewModel updates `SessionSpent` and refreshes `CreditBalance`
+   - All history items' `IsSelected` updated (only newest selected)
+   - Generate button re-enabled, overlay hidden
+7. On error:
+   - Error dialog shown with descriptive message (API errors formatted by `ApiException.ToDisplayString()`)
+   - Generate button re-enabled, overlay hidden
 
 ### 5.3 History Navigation Flow
-1. User clicks a thumbnail in the HistoryPanel
-2. ImageWindow `RestoreRecord()` is called
+1. User clicks a thumbnail in the left history panel
+2. `ImageDocumentViewModel.RestoreRecord()` is called
 3. Canvas displays the selected record's image
 4. Prompt textarea is set to the record's prompt
-5. Width/Height inputs are set to the record's dimensions
-6. The selected thumbnail is highlighted
+5. Parameter values restored: `ApplyParameterValues()` sets each parameter from `record.Parameters`
+6. All history items' `IsSelected` updated (only clicked item highlighted)
+7. The selected thumbnail gets a `DodgerBlue` border (via `historyItem:selected` style selector)
+
+### 5.3b Model Parameters Dialog Flow
+1. User clicks the ⋯ button in any image window
+2. `EditModelParametersAsync()` creates a `ModelParametersDialog` and calls `dialog.Initialize(this)`
+3. The dialog opens as a modal window over the main window
+4. Dialog shows:
+   - Current model name (read-only textbox) with a ⋯ button to browse for a different model
+   - Progress bar (visible during API fetch)
+   - Parameter rows: each with a checkbox (mandatory params locked on), name, and editor (dropdown for enum, validated textbox for range/boolean)
+5. Changing model via the ⋯ browse button:
+   - Opens ModelBrowserDialog filtered to image gen models
+   - On selection: `LoadParametersForModelAsync(newModel)` fetches that model's schema from the API
+   - Old rows removed, new rows added with all values unset
+6. On OK:
+   - All rows validated (number ranges checked; out-of-bounds values show red error text)
+   - If any row has a validation error, OK is blocked
+   - On valid: each row commits its value back to the source `ModelParameterValue`
+   - Dialog closes
+7. On Cancel: all edits discarded, dialog closes
+
+### 5.4 Save Flow
 
 ### 5.4 Save Flow
 1. User clicks `Save`
-2. If current record is null or generation is still in progress, do nothing (or beep)
-3. A `FileChooser` save dialog opens with default filename `Generated-YYYYMMDD-HHmmSS.png`
+2. If no current record or no image, the button is disabled (safe — bound to `HasCurrentImage`)
+3. A `FilePickerSaveOptions` dialog opens with default filename `Generated-YYYYMMDD-HHmmSS.png`
 4. User selects folder and confirms
 5. Image is written as PNG to the chosen path
-6. The prompt text is written to `{filename}.png.prompt` (e.g. `Generated-20261111-225900.png.prompt`)
-7. The record's `saved` flag is set to true
-8. Success notification (brief toast or status bar message)
+6. JSON metadata is written to `{filename}.png.prompt` containing:
+   - `Prompt`: the prompt text
+   - `Model`: the model that generated it (`GenerationModel` or record's model)
+   - `Parameters`: non-null parameter values (keyed by name)
+   - `Cost`: USD cost as reported by the API
+7. The record's `IsSaved` flag is set to true
+8. `IsDirty` is re-evaluated: if all records are saved, becomes false
+9. Title updates (removes `*`)
 
 ### 5.5 Load Flow
 1. User clicks `File > Load` (or `Ctrl+L`)
-2. `FileChooser` open dialog for `*.png` files
+2. `FilePickerOpenOptions` dialog for `*.png` files
 3. User selects a PNG file
 4. Image bytes are read into memory
-5. The service checks for companion file `{selected}.prompt`
-6. If prompt file exists, its content is read as the prompt text; otherwise prompt is empty
-7. MainWindow creates a new `ImageDocumentViewModel`
-8. A `GenerationRecord` is created with the loaded data (marked as saved=true)
-9. Record placed in the window's history list
-10. Canvas displays image, prompt filled, dimensions honor original image size
-11. Window added to MDI
+5. `ImageIOService.LoadImageWithMetadataAsync()` reads the companion `.prompt` file:
+   - JSON sidecar: extracts Prompt, Model, Parameters (dictionary), Cost
+   - Legacy plain-text `.prompt`: reads as plain prompt text (no model/params/cost)
+6. `DockFactory.CreateLoadedImageDocument()` creates a new `ImageDocumentViewModel` and calls `LoadFromImage()`:
+   - `GenerationRecord` created with loaded data (marked IsSaved=true)
+   - Record placed in the window's history list, set as current
+   - Prompt filled, image displayed
+   - Window adopts the sidecar's model (if any) — `GenerationModel = record.Model`
+   - Window queues parameter values for restoration (`_pendingParameterRestore`)
+7. DockFactory.AddDocument() runs:
+   - If the loaded model matches the configured default: parameters populated from cached schema, then pending values applied immediately
+   - If the loaded model differs: schema fetched asynchronously from the API, pending values applied after the descriptors arrive (`LoadSchemaAndRestoreAsync()`)
+8. Window added to MDI with minimum size 560×400
 
 ### 5.6 Quit Flow
 1. User clicks `File > Quit` (or `Ctrl+Q` / window close button)
@@ -824,18 +843,23 @@ These prices are shown in the ModelBrowserDialog as formatted strings.
 4. If no dirty windows, application exits immediately
 
 ### 5.7 Preferences Flow
-1. User clicks `Edit > Preferences`
+1. User clicks `Edit > Preferences` (or `Ctrl+,`)
 2. `PreferencesDialog` opens as a modal window
-3. Fields:
+3. Fields (in layout order):
+   - **Provider:** `ComboBox` with options **"OpenRouter"**, **"Ollama"**, **"LM Studio"**, **"LocalAI"**, **"Custom"** — selecting a non-OpenRouter provider shows the custom provider fields (Base URL, optional API key)
    - **Theme:** `ComboBox` with options **"Dark", "Light", "System"** (default: **"System"**). Changing the selection previews the theme immediately; **Save** commits it, **Cancel** reverts.
-   - **OpenRouter API Key:** `PasswordField` (masked input)
-   - **Image Generation Model:** `TextField` + `[Show All Models]` button
-   - **Vision/Image Parsing Model:** `TextField` + `[Show All Models]` button
-4. `[Show All Models]` (for image gen) → calls OpenRouter to list models → opens `ModelBrowserDialog` filtered to `image_generation` models → user selects one → model name populates the text field
-5. `[Show All Models]` (for vision) → same but filtered to `vision` models
+   - **API Key:** `TextBox` with `PasswordChar="•"` for masking
+   - **Image Generation Model:** `TextBox` (read-only) + `[Browse...]` button
+   - **Prompt Generation Model:** `TextBox` (read-only) + `[Browse...]` button
+   - **Vision / Image Analysis Model:** `TextBox` (read-only) + `[Browse...]` button
+4. `[Browse...]` buttons each open `ModelBrowserDialog` filtered to the appropriate model type (Image Gen / Vision / All Models)
+5. When the generation model is changed, the app fetches that model's parameter schema from the API (`GetModelParameterDescriptorsAsync`) and stores it in the model parameters fields
 6. `[Save]` / `[Cancel]` buttons at bottom
-7. On **Save**: all preferences (including the selected theme) are committed and written to the config file via `PreferencesService`; the dialog closes; the new theme is applied immediately to the whole application
-8. On **Cancel**: changes are discarded; the previous theme (if previewed) is reverted; nothing is written
+7. On **Save**: all preferences committed via `PreferencesService.Save()`:
+   - If the generation model changed since the last save, `MainWindowViewModel.RefreshModelParametersAsync()` re-fetches the new model's parameter schema from the API before saving
+   - Theme applied immediately via `App.ApplyTheme(theme)`
+   - Dialog closes
+8. On **Cancel**: changes discarded; previous theme restored; nothing written
 
 **Theme handling details:**
 - Theme value maps to Avalonia's `RequestedThemeVariant`: `"Dark"` → `ThemeVariant.Dark`, `"Light"` → `ThemeVariant.Light`, `"System"` → `ThemeVariant.Default` (follows the OS).
@@ -844,14 +868,22 @@ These prices are shown in the ModelBrowserDialog as formatted strings.
 - The theme choice lives in the same config file as the rest of the preferences (see 6.1) and is persisted only when the user presses Save.
 
 ### 5.8 Model Browser Flow
-1. Called from Preferences
-2. Opens as a modal resizable window
-3. Loading indicator while API call is in flight
-4. Results displayed in a `TableView` with columns: **Model Name**, **Model ID**, **Pricing per image** (or per token)
-5. User can scroll through list
-6. Buttons: `[Select]` and `[Cancel]`
-7. Select → the selected model's ID is returned and placed in the Preferences text field
-8. If API call fails → error message shown, dialog remains openable for retry
+1. Called from Preferences (Browse...) or Model Parameters dialog (⋯)
+2. Opens as a modal resizable window with toolbar
+3. Loading indicator while API call is in flight (first load, or when the user presses ⟳)
+4. Toolbar:
+   - **Search box**: live-filters by model name or ID as you type
+   - **Filter dropdown**: "Image Gen", "Vision", "All Models" (pre-selected based on context)
+   - **Free checkbox**: limit to free models only
+   - **⟳ (refresh button)**: re-fetch the model list from OpenRouter
+5. Results displayed in an `ItemsControl` with each row showing:
+   - Model display name
+   - Model ID (smaller, grey text)
+   - Pricing (per image and/or per token) on the right, formatted
+6. User can scroll through the list
+7. Click a row to select it (highlighted), then `[Select]` or double-click to confirm
+8. `[Cancel]` closes the dialog without changing the selection
+9. If API call fails → error message shown; user can retry with the refresh button
 
 ### 5.9 About Dialog
 - `Window` with `Title: "About AI Image Generator"`
@@ -947,9 +979,10 @@ Dialog Title: "Prompt Generator"
 
 ### 6.1 Preferences Storage
 
-**Location:** The preferences config file is stored **in the same folder as the program executable** (not the user's app-data directory). This keeps the config portable alongside the app:
-
-- `<executable directory>/preferences.json` — resolved via `AppContext.BaseDirectory` at runtime (works when running from `dotnet run` too, where it lands in `bin/Debug/net10.0/`).
+**Location:** Platform app data folder:
+- `Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) + "/ImageGenerator/preferences.json"`
+  - Linux: `~/.config/ImageGenerator/preferences.json`
+  - Windows: `%APPDATA%\ImageGenerator\preferences.json`
 
 **Format:**
 ```json
@@ -958,26 +991,38 @@ Dialog Title: "Prompt Generator"
   "openRouterApiKey": "sk-or-v1-...",
   "openRouterGenerationModel": "stabilityai/stable-diffusion-3.5",
   "openRouterVisionModel": "openai/gpt-4o",
+  "openRouterPromptGenModel": "openai/gpt-4o-mini",
   "customProviderName": "Custom",
   "customProviderBaseUrl": "http://localhost:11434/v1",
   "customProviderApiKey": "",
   "customGenerationModel": "",
   "customVisionModel": "",
+  "openRouterGenerationModelParameters": [ { "name": "resolution", "kind": "enum", "values": ["..."] }, ... ],
+  "openRouterGenerationModelParametersFor": "stabilityai/stable-diffusion-3.5",
   "theme": "System"
 }
 ```
 
 - **`theme`** values: `"Dark"`, `"Light"`, or `"System"` (default when absent).
+- **`openRouterGenerationModelParameters`**: cached model parameter schema, fetched from the API when the user picks a model via Browse. Avoids re-fetching on every startup.
 - The file is written whenever the user presses **Save** in the Preferences dialog, and **only** then — no intermediate writes while editing.
-- The API key should be stored with at-rest obfuscation (simple base64 or platform keychain if available). For simplicity in v1, store as plaintext JSON with basic XOR/base64 obfuscation optional.
+- The API key is stored as plaintext in the JSON file (simple XOR/base64 obfuscation possible but not implemented).
 
 ### 6.2 Image Save Format
 
 - Primary file: `Generated-YYYYMMDD-HHmmSS.png`
 - Companion file: `Generated-YYYYMMDD-HHmmSS.png.prompt`
-  - Contains the raw prompt text (UTF-8 encoded)
-  - No additional metadata, wrapping, or structure — just the prompt as plain text
-  - Example content: `"A whimsical cartoon of a train made of bread, travelling through a forest of giant vegetables, colourful, morning light"`
+  - JSON sidecar containing the prompt, model, parameters and cost:
+  ```json
+  {
+    "Prompt": "A whimsical cartoon of a train made of bread...",
+    "Model": "bytedance-seed/seedream-5-5",
+    "Parameters": { "resolution": "1024x1024", "n": "1" },
+    "Cost": 0.004
+  }
+  ```
+  - Legacy plain-text `.prompt` files (old app versions, prompt only) still load correctly.
+  - On load, the window adopts the sidecar's model and restores saved parameter values onto that model's schema.
 
 ---
 
@@ -1162,38 +1207,51 @@ This is the recommended build sequence — each phase is testable before moving 
 
 ---
 
-## 11. Improvements (Future Enhancements)
+## 11. Status Bar
 
-### Implemented in This Specification
-The following enhancements are already included in the spec above but can be considered "stretch":
+The main window's bottom strip shows three live values, all bound to `MainWindowViewModel`:
 
-1. **Image-to-Prompt Generation** — Using vision-capable LLMs to describe an image as a generation prompt
-2. **AI-Assisted Prompt Generator** — Themed dropdowns with Randomize, powered by LLM
-3. **Model Browser with Pricing** — Browse OpenRouter's model catalog with live pricing
+| Section | Content | Source |
+|---------|---------|--------|
+| Left | `Balance: $12.50` or `Balance: —` | `GetCreditBalanceAsync()` — refreshed at startup and after every billable request. Shows `—` when the key isn't set or the fetch fails. |
+| Centre | `2 windows open` | `WindowCountChanged` event from DockFactory — pluralises correctly. |
+| Right | `Spent: $0.0410` | Accumulated from all operations (image generation, prompt building, vision analysis). Resets on each program load. |
 
-### Additional Ideas (Not Yet Specified)
-
-4. **Batch Generation** — Generate N variations of the same prompt in one click, showing them in a grid
-5. **Image-to-Image Generation** — Use an existing image as a starting point (img2img) via supported models
-6. **Negative Prompt Input** — Add a "Negative Prompt" field for models that support it (e.g., Stable Diffusion)
-7. **Generation Presets** — Save/load sets of dimensions + model config as named presets
-8. **History Export** — Export the entire history of a session as an HTML gallery or ZIP archive
-9. **Drag & Drop** — Drag a history thumbnail out to save directly, or drag an image file in to load it
-10. **Inpainting Masking** — Select a region of the image for inpainting (local regeneration)
-11. **Upscaling** — Add an "Upscale" button to increase image resolution via a compatible model
-12. **Local Model Support** — Run models locally via ComfyUI or Stable Diffusion WebUI API (side-by-side with OpenRouter)
-13. **Image Comparison** — Side-by-side view of two history records to compare variations
-14. **Generation Parameters** — Expose more model parameters (CFG scale, steps, seed, sampler)
-15. **Stable Diffusion Prompt Weighting** — Support `(word:1.2)` style weighting in prompt input
-16. **Auto-save** — Periodically auto-save unsaved generations to a recovery directory
-17. **Dark/Light Theme Toggle** — Avalonia Fluent themes support this natively; offer a View > Theme menu
-18. **In-app Update Checker** — Check GitHub releases for new versions
-19. **Prompt Library** — Save favourite prompts to a browsable library with tags/categories
-20. **OpenRouter Credit Display** — Show remaining account balance from OpenRouter API
+Both costs and balance refresh via `SessionCostAdded` event wired in MainWindowViewModel's constructor — each document's `CostReported` forwards to this.
 
 ---
 
-## 12. Verification & Testing
+## 12. Improvements (Future Enhancements)
+
+### Implemented
+1. **Image-to-Prompt Generation** — Using vision-capable LLMs to describe an image as a generation prompt
+2. **AI-Assisted Prompt Generator** — Themed dropdowns with Randomize, powered by LLM
+3. **Model Browser with Pricing** — Browse OpenRouter's model catalog with live pricing
+4. **Generation Parameters** — API-discovered model parameters (resolution, aspect ratio, seed, quality, etc.) exposed per-window via the Model Parameters dialog
+5. **Dark/Light Theme Toggle** — Dark, Light, and System themes in Preferences
+6. **OpenRouter Credit Display** — Remaining account balance shown in the status bar
+7. **Per-Window Model Override** — Each image window can use a different generation model via the ⋯ button, with that model's full parameter schema fetched from the API
+
+### Additional Ideas (Not Yet Specified)
+
+8. **Batch Generation** — Generate N variations of the same prompt in one click, showing them in a grid
+9. **Image-to-Image Generation** — Use an existing image as a starting point (img2img) via supported models
+10. **Negative Prompt Input** — Add a "Negative Prompt" field for models that support it (e.g., Stable Diffusion)
+11. **Generation Presets** — Save/load sets of dimensions + model config as named presets
+12. **History Export** — Export the entire history of a session as an HTML gallery or ZIP archive
+13. **Drag & Drop** — Drag a history thumbnail out to save directly, or drag an image file in to load it
+14. **Inpainting Masking** — Select a region of the image for inpainting (local regeneration)
+15. **Upscaling** — Add an "Upscale" button to increase image resolution via a compatible model
+16. **Local Model Support** — Run models locally via ComfyUI or Stable Diffusion WebUI API (side-by-side with OpenRouter)
+17. **Image Comparison** — Side-by-side view of two history records to compare variations
+18. **Stable Diffusion Prompt Weighting** — Support `(word:1.2)` style weighting in prompt input
+19. **Auto-save** — Periodically auto-save unsaved generations to a recovery directory
+20. **In-app Update Checker** — Check GitHub releases for new versions
+21. **Prompt Library** — Save favourite prompts to a browsable library with tags/categories
+
+---
+
+## 13. Verification & Testing
 
 ### Build & Launch
 ```bash
@@ -1208,18 +1266,26 @@ cd "/home/nick/RiderProjects/Image Generator"
 ### Acceptance Tests
 | # | Test | Steps | Expected |
 |---|------|-------|----------|
-| 1 | New Image | Edit > New Image | Floating child window appears with black canvas, empty history, default dimensions, empty prompt |
-| 2 | Generate | Type prompt, click Generate | Image appears in canvas and history |
-| 3 | History nav | Click different thumbnails | Canvas and prompt update to match |
-| 4 | Save | Click Save, choose folder | PNG and .prompt file written |
-| 5 | Load | File > Load, select PNG | New window opens with image and prompt |
-| 6 | Quit with unsaved | Generate, don't save, Quit | Confirmation dialog appears |
-| 7 | Preferences | Edit > Preferences, set API key | Settings saved, used in subsequent API calls |
-| 8 | Model Browser | Preferences > Show All Models | List of models displayed with pricing |
-| 9 | Prompt Gen | Click Generate a Prompt | Dialog opens, dropdowns work, generate places prompt in textarea |
-| 10 | Randomize | In Prompt Generator, click Randomize | All dropdowns change to random values |
-| 11 | Image-to-Prompt | Load/generate image, click Gen Prompt from Image | Prompt textarea populated with description |
-| 12 | About | About > About | Dialog shows "AI Image Generator" with info |
+| 1 | New Image | Edit > New Image | Floating MDI window appears with black canvas, empty history, empty prompt |
+| 2 | Generate | Type prompt, click Prompt->Image | Progress overlay appears; image appears in canvas and history. Cost shown in status bar. Thumbnail tooltip shows cost, model, prompt. |
+| 3 | History nav | Click different thumbnails | Canvas, prompt and parameters restore to match the clicked record |
+| 4 | Save | Click Save, choose folder | PNG and .prompt JSON sidecar written |
+| 5 | Load | File > Load, select PNG | New window opens with image, prompt, model and parameters restored |
+| 6 | Load with different model | Load a PNG made with a different model | Window adopts that model; parameters fetched from API; saved values restored |
+| 7 | Quit with unsaved | Generate, don't save, Quit | Confirmation dialog appears |
+| 8 | Preferences | Edit > Preferences, set API key, choose models | Settings saved, used in subsequent API calls |
+| 9 | Model Browser | Preferences > Browse... | Model list with search, filter, pricing displayed |
+| 10 | Model Parameters (⋯) | Click ⋯ in any image window | Dialog opens showing current model + parameter rows with checkboxes |
+| 11 | Parameter override | Check a parameter, set a value, OK | That value is sent to the API on the next generation |
+| 12 | Per-window model | In Model Parameters, change model via ⋯ browse | New model's parameters fetched from API; dialog rows rebuilt |
+| 13 | Mandatory parameters | Open ⋯ for a model with resolution/aspect_ratio | Those checkboxes are locked on (greyed out) |
+| 14 | Validation | In a range parameter, type a value outside the allowed range | Red error text appears; OK is blocked |
+| 15 | Prompt Gen | Click Build Prompt | Dialog opens with dropdowns; Generate places prompt in textarea |
+| 16 | Randomize | In Prompt Generator, click Randomize | All non-skip dropdowns change to random values |
+| 17 | Image-to-Prompt | Load/generate image, click Image->Prompt | Prompt textarea populated with vision model's description |
+| 18 | Status bar | Generate an image | Balance refreshes, window count updates, spend increases |
+| 19 | Theme toggle | Preferences > Theme > Light | UI switches to light theme immediately |
+| 20 | About | About > About | Dialog shows "AI Image Generator" with info |
 
 ---
 

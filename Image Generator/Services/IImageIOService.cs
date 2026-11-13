@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Image_Generator.Models;
@@ -11,4 +12,5 @@ public interface IImageIOService
     Task<(byte[] imageData, string? prompt)> LoadImageAsync(string filePath);
     Task<(byte[] imageData, PromptFileMetadata? metadata)> LoadImageWithMetadataAsync(string filePath);
     string GenerateDefaultFileName();
+    string GenerateDefaultFileName(DateTime timestamp);
 }

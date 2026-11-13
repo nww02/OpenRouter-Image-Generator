@@ -56,23 +56,33 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:GenerationRecordViewModel">
                             <Button Command="{Binding $parent[UserControl].((vm:ImageDocumentViewModel)DataContext).RestoreRecordCommand}"
-                                    CommandParameter="{Binding}"
-                                    HorizontalContentAlignment="Stretch"
-                                    Padding="0"
-                                    Background="Transparent"
-                                    ToolTip.Tip="{Binding TooltipText}"
-                                    Margin="4,2">
-                                <Border Classes="historyItem"
-                                        IsEnabled="{Binding IsSelected}">
-                                    <StackPanel>
-                                        <Image Source="{Binding Thumbnail}" Width="160" Stretch="Uniform" />
-                                        <TextBlock Text="{Binding Record.Timestamp, StringFormat='\{0:HH:mm:ss\}'}"
-                                                   FontSize="10"
-                                                   HorizontalAlignment="Center"
-                                                   Margin="0,2" />
-                                    </StackPanel>
-                                </Border>
-                            </Button>
+        CommandParameter="{Binding}"
+        HorizontalContentAlignment="Stretch"
+        Padding="0"
+        Background="Transparent"
+        ToolTip.Tip="{Binding TooltipText}"
+        Margin="4,2">
+    <Button.ContextMenu>
+        <ContextMenu>
+            <MenuItem Header="Save" Click="OnHistoryMenuClick" Tag="Save" />
+            <MenuItem Header="Save All" Click="OnHistorySaveAllClick" />
+            <MenuItem Header="Remove" Click="OnHistoryMenuClick" Tag="Remove" />
+            <Separator />
+            <MenuItem Header="Copy Prompt" Click="OnHistoryMenuClick" Tag="CopyPrompt" />
+            <MenuItem Header="Copy Image" Click="OnHistoryMenuClick" Tag="CopyImage" />
+        </ContextMenu>
+    </Button.ContextMenu>
+    <Border Classes="historyItem"
+            IsEnabled="{Binding IsSelected}">
+        <StackPanel>
+            <Image Source="{Binding Thumbnail}" Width="160" Stretch="Uniform" />
+            <TextBlock Text="{Binding Record.Timestamp, StringFormat='\{0:HH:mm:ss\}'}"
+                       FontSize="10"
+                       HorizontalAlignment="Center"
+                       Margin="0,2" />
+        </StackPanel>
+    </Border>
+</Button>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -147,9 +157,11 @@
                         MinWidth="32" Padding="8,4" />
                 <Button Content="Build Prompt" Command="{Binding GeneratePromptCommand}" />
                 <Button Content="Image->Prompt" Command="{Binding GeneratePromptFromImageCommand}"
-                        IsEnabled="{Binding HasCurrentImage}" />
+                        IsEnabled="{Binding HasCurrentImage}"
+                        ToolTip.Tip="{Binding ImageToPromptButtonTooltip}" />
                 <Button Content="Prompt->Image" Command="{Binding GenerateImageCommand}"
-                        IsEnabled="{Binding !IsGenerating}" />
+                        IsEnabled="{Binding !IsGenerating}"
+                        ToolTip.Tip="{Binding GenerateButtonTooltip}" />
                 <Button Content="Save" Command="{Binding SaveImageCommand}"
                         IsEnabled="{Binding HasCurrentImage}" />
             </StackPanel>

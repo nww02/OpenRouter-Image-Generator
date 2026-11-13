@@ -154,7 +154,25 @@ when the text gets long.
 4. The finished image appears in the canvas and in the history panel on the
    left.
 
-The window title shows a `*` when you have unsaved changes.
+The window title shows the first 20 characters of the current prompt followed
+by the image size — e.g. `a red panda astron… (1024×1024)`. An image loaded
+without a `.prompt` sidecar (so no prompt is known) shows `(no prompt)`.
+
+### What will it cost?
+
+Before you click, hover the **Prompt->Image** or **Image->Prompt** button and
+the tooltip shows an **estimate of what that click will cost**, based on the
+model and parameter combination the window is currently set to:
+
+- The first time a combination is used, the tooltip says *cost unknown*.
+- After each successful generation, the real cost reported by OpenRouter is
+  folded into a running average for that exact combination — the previous
+  estimate and the new cost weighted evenly, so $0.04 followed by $0.03
+  becomes an estimate of $0.035.
+- The averages are stored in your local config, so they survive restarts.
+
+Change the model or any parameter and the estimate follows the new
+combination — every combination keeps its own history.
 
 ---
 
@@ -230,8 +248,8 @@ what you're picking (Image Gen when choosing a generation model, Vision when
 choosing a vision model, and so on).
 
 Each row shows the model's display name, its ID, and its **pricing** (per
-image and/or per token) on the right. Click a model to select it, then
-**Select** to use it — or **Cancel** to keep what you had.
+image, per request and/or per token) on the right. Click a model to select it,
+then **Select** to use it — or **Cancel** to keep what you had.
 
 ![Model Browser — search, filter and browse all OpenRouter image models with pricing](https://raw.githubusercontent.com/nww02/OpenRouter-Image-Generator/refs/heads/master/Image%20Generator/Screenshots/Screenshot_20261113_011341.png)
 <br>
@@ -309,11 +327,28 @@ generated in that window, newest at the bottom.
 - **Hover a thumbnail** to see exactly how it was made:
   ```
   2026-11-13 14:23:07
+  1024×1024
   Cost: $0.0400
   Model: bytedance-seed/seedream-5-5
   Prompt: a red panda astronaut floating in space...
   ```
 - The blue border marks the currently-displayed image.
+
+### Right-click menu
+
+Right-click any thumbnail to act on that image directly:
+
+| Menu item | What it does |
+|---|---|
+| **Save** | Save just that image. The suggested filename is built from the image's **generation** time (`Generated-YYYYMMDD-HHmmss.png`), not the current clock — restore an old image and save it, and it keeps its original timestamp. |
+| **Save All** | Save every image in the window's history in one go. You're asked for a filename **prefix** (default `images`), then an **output folder**; the files are written as `prefix-Generated-YYYYMMDD-HHmmss.png`, one per image, each with its `.prompt` sidecar. |
+| **Remove** | Discard that image from the history. If it was the one on the canvas, the most recent remaining image takes its place. |
+| **Copy Prompt** | Put the prompt that generated the image on the system clipboard. |
+| **Copy Image** | Put the image itself on the clipboard as a bitmap, ready to paste into other apps. |
+
+> **Note:** image clipboard support depends on the platform — it works
+> natively on Windows and macOS; on Linux it depends on your desktop's
+> clipboard backend.
 
 The history belongs to the window — closing the window discards its history
 (unsaved images are confirmed first).
@@ -324,9 +359,13 @@ The history belongs to the window — closing the window discards its history
 
 ### Saving
 
-With an image displayed, press **Save**:
+With an image displayed, press **Save** (or right-click the image's thumbnail
+in the history panel and choose **Save**):
 
-- Choose a location and filename (a timestamped default is suggested).
+- Choose a location and filename — the suggested default is
+  `Generated-YYYYMMDD-HHmmss.png`, built from the image's **generation**
+  time, so restoring an older image from the history and saving it keeps the
+  original timestamp rather than the current clock.
 - The app writes **two files**:
   - `yourimage.png` — the image itself
   - `yourimage.png.prompt` — a small JSON sidecar recording:

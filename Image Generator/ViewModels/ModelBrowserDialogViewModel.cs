@@ -217,6 +217,8 @@ public partial class ModelBrowserDialogViewModel : ViewModelBase
             parts.Add($"${pricing.PerMegapixel.Value:F4}/MP");
         if (pricing.PerToken.HasValue && pricing.PerToken.Value > 0)
             parts.Add($"${pricing.PerToken.Value:F6}/tok");
+        if (pricing.PerRequest.HasValue && pricing.PerRequest.Value > 0)
+            parts.Add($"${pricing.PerRequest.Value:F4}/req");
 
         return parts.Count > 0 ? string.Join(" + ", parts) : "Free / Unknown";
     }

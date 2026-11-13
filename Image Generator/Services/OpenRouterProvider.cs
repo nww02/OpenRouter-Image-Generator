@@ -30,7 +30,7 @@ public class OpenRouterProvider : IImageGenerationProvider
         // the HttpClient default of 100s cuts long generations off mid-flight.
         _httpClient.Timeout = TimeSpan.FromMinutes(5);
         _httpClient.DefaultRequestHeaders.Add("HTTP-Referer", "https://localhost/");
-        _httpClient.DefaultRequestHeaders.Add("X-Title", "AI Image Generator");
+        _httpClient.DefaultRequestHeaders.Add("X-Title", "DBM: OpenRouter Image Generator");
     }
 
     public string Name => "OpenRouter";
@@ -66,9 +66,31 @@ public class OpenRouterProvider : IImageGenerationProvider
             foreach (var entry in imagesResponse?.Data ?? Enumerable.Empty<OpenRouterImageModelEntry>())
             {
                 seen.Add(entry.Id);
-                var pricing = pricingById.TryGetValue(entry.Id, out var p) && p is not null
-                    ? new ModelPricing { PerImage = p.Image, PerToken = p.Prompt, Currency = "USD" }
-                    : null;
+
+                // Try pricing from the /models catalogue first (has image cost);
+                // fall back to the image catalogue's own pricing field if present;
+                // fall back to request-only pricing from /models.
+                ModelPricing? pricing = null;
+                if (pricingById.TryGetValue(entry.Id, out var p) && p is not null)
+                {
+                    pricing = new ModelPricing
+                    {
+                        PerImage = p.Image,
+                        PerToken = p.Prompt,
+                        PerRequest = p.Request,
+                        Currency = "USD"
+                    };
+                }
+                else if (entry.Pricing is not null)
+                {
+                    pricing = new ModelPricing
+                    {
+                        PerImage = entry.Pricing.Image,
+                        PerToken = entry.Pricing.Prompt,
+                        PerRequest = entry.Pricing.Request,
+                        Currency = "USD"
+                    };
+                }
 
                 results.Add(new ProviderModelInfo
                 {
@@ -99,6 +121,7 @@ public class OpenRouterProvider : IImageGenerationProvider
                 {
                     PerImage = model.Pricing.Image,
                     PerToken = model.Pricing.Prompt,
+                    PerRequest = model.Pricing.Request,
                     Currency = "USD"
                 } : null;
 
@@ -174,6 +197,8 @@ public class OpenRouterProvider : IImageGenerationProvider
             parts.Add($"${pricing.PerMegapixel.Value:F4}/MP");
         if (pricing.PerToken.HasValue && pricing.PerToken.Value > 0)
             parts.Add($"${pricing.PerToken.Value:F6}/tok");
+        if (pricing.PerRequest.HasValue && pricing.PerRequest.Value > 0)
+            parts.Add($"${pricing.PerRequest.Value:F4}/req");
 
         return parts.Count > 0 ? string.Join(" + ", parts) : "Free / Unknown";
     }

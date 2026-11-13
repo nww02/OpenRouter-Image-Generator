@@ -25,12 +25,18 @@ public class PreferencesService : IPreferencesService
             {
                 var json = File.ReadAllText(_settingsPath);
                 var prefs = JsonSerializer.Deserialize<AppPreferences>(json);
+                if (prefs is not null)
+                {
+                    // Decrypt API keys — handles both encrypted and legacy
+                    // plaintext values automatically.
+                    prefs.OpenRouterApiKey = KeyProtection.Decrypt(prefs.OpenRouterApiKey);
+                    prefs.CustomProviderApiKey = KeyProtection.Decrypt(prefs.CustomProviderApiKey);
+                }
                 return prefs ?? new AppPreferences();
             }
         }
         catch (Exception ex)
         {
-            // Log error if needed
             Console.WriteLine($"Failed to load preferences: {ex.Message}");
         }
         return new AppPreferences();
@@ -40,7 +46,16 @@ public class PreferencesService : IPreferencesService
     {
         try
         {
-            var json = JsonSerializer.Serialize(preferences, new JsonSerializerOptions { WriteIndented = true });
+            // Clone via round-trip so encrypting the copy never touches
+            // the in-memory preferences that the rest of the app reads.
+            var cloneJson = JsonSerializer.Serialize(preferences);
+            var forSave = JsonSerializer.Deserialize<AppPreferences>(cloneJson)!;
+
+            // Encrypt sensitive fields before writing to disk
+            forSave.OpenRouterApiKey = KeyProtection.Encrypt(forSave.OpenRouterApiKey);
+            forSave.CustomProviderApiKey = KeyProtection.Encrypt(forSave.CustomProviderApiKey);
+
+            var json = JsonSerializer.Serialize(forSave, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_settingsPath, json);
         }
         catch (Exception ex)

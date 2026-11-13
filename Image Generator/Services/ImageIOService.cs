@@ -111,7 +111,11 @@ public class ImageIOService : IImageIOService
 
     public string GenerateDefaultFileName()
     {
-        var now = DateTime.Now;
-        return $"Generated-{now:yyyyMMdd-HHmmss}.png";
+        return GenerateDefaultFileName(DateTime.Now);
+    }
+
+    public string GenerateDefaultFileName(DateTime timestamp)
+    {
+        return $"Generated-{timestamp:yyyyMMdd-HHmmss}.png";
     }
 }

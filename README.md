@@ -62,8 +62,13 @@ Load the image back in later and you can see exactly how it was made — and the
 loaded window picks up **that image's model and parameters** automatically, so
 you can continue right where it left off, whatever model you're currently
 using elsewhere.
-Hover any thumbnail in the history panel to see when it was made, what it cost,
-and which model made it.
+Hover any thumbnail in the history panel to see when it was made, its size,
+what it cost, and which model made it. Right-click a thumbnail for a context
+menu: **Save** (the suggested filename is built from the image's *generation*
+time, so old images keep their original timestamp), **Save All** (pick a
+filename prefix and an output folder, and the whole history is written out),
+**Remove** to discard it, **Copy Prompt**, and **Copy Image** to put the image
+itself on the clipboard.
 
 ### 💰 Costs at a glance
 The status bar keeps track of your session: remaining **account balance** on
@@ -71,6 +76,14 @@ the left, **open windows** in the centre, and **total spent this session** on
 the right (image generations, prompt building, and image→prompt analysis all
 count). The session total resets each time the app loads, so you always know
 what this sitting cost you.
+
+You can also peek before you spend: hover the **Prompt->Image** or
+**Image->Prompt** button and the tooltip shows an **estimate of what that
+click will cost**, based on what that model and parameter combination has
+*actually* cost you before. The first time a combination is used it says *cost
+unknown*; after that, every real cost reported by the API folds into a running
+average (the previous estimate and the latest cost weighted evenly), and the
+averages are remembered between sessions in your local config.
 
 ## Getting started
 
@@ -84,9 +97,10 @@ what this sitting cost you.
    (the Browse buttons show every model with its pricing).
 4. Type a prompt, hit **Prompt->Image**, done.
 
-Your API key is stored in your OS user config folder
-(`~/.config/ImageGenerator/` on Linux, `%APPDATA%\ImageGenerator\` on Windows)
-— never in the repo, and never sent anywhere except OpenRouter.
+Your API key is stored **encrypted** (keyed to your machine and user account) in
+your OS user config folder (`~/.config/ImageGenerator/` on Linux,
+`%APPDATA%\ImageGenerator\` on Windows) — never in the repo, and never sent
+anywhere except OpenRouter.
 
 ## Built with
 

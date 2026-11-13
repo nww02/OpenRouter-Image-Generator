@@ -28,6 +28,14 @@ public class OpenRouterPricing
 
     [JsonPropertyName("image")]
     public decimal? Image { get; set; }
+
+    /// <summary>
+    /// Flat per-request fee charged regardless of output size/tokens.
+    /// Many newer image models use this instead of (or alongside) per-image
+    /// pricing.
+    /// </summary>
+    [JsonPropertyName("request")]
+    public decimal? Request { get; set; }
 }
 
 public class OpenRouterArchitecture
@@ -153,6 +161,13 @@ public class OpenRouterImageModelEntry
 
     [JsonPropertyName("supported_parameters")]
     public Dictionary<string, OpenRouterCapability>? SupportedParameters { get; set; }
+
+    /// <summary>
+    /// Pricing data (when the API returns it in the image catalogue; may be
+    /// absent — the /models endpoint is the primary pricing source).
+    /// </summary>
+    [JsonPropertyName("pricing")]
+    public OpenRouterPricing? Pricing { get; set; }
 }
 
 /// <summary>

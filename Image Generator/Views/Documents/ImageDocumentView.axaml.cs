@@ -1,7 +1,9 @@
 using System;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using Avalonia.VisualTree;
+using Image_Generator.ViewModels.Documents;
 
 namespace Image_Generator.Views.Documents;
 
@@ -60,5 +62,35 @@ public partial class ImageDocumentView : UserControl
         _parentBoundsSubscription?.Dispose();
         _parentBoundsSubscription = null;
         base.OnDetachedFromVisualTree(e);
+    }
+
+    private async void OnHistoryMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string action, DataContext: GenerationRecordViewModel record })
+            return;
+        if (DataContext is not ImageDocumentViewModel vm)
+            return;
+
+        switch (action)
+        {
+            case "Save":
+                await vm.SaveRecordAsync(record);
+                break;
+            case "Remove":
+                vm.RemoveRecord(record);
+                break;
+            case "CopyPrompt":
+                await vm.CopyPromptAsync(record);
+                break;
+            case "CopyImage":
+                await vm.CopyImageAsync(record);
+                break;
+        }
+    }
+
+    private async void OnHistorySaveAllClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is ImageDocumentViewModel vm)
+            await vm.SaveAllRecordsAsync();
     }
 }

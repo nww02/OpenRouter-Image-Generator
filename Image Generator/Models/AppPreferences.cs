@@ -35,6 +35,13 @@ public class AppPreferences
 
     // UI theme: "Dark", "Light", or "System" (default)
     public string Theme { get; set; } = "System";
+
+    /// <summary>
+    /// Running average cost per generation, keyed by
+    /// "model|param1=value1|param2=value2…" (params sorted alphabetically).
+    /// Updated after each successful generation; used for tooltip estimates.
+    /// </summary>
+    public Dictionary<string, double> ModelCostAverages { get; set; } = new();
 }
 
 public class PromptGenerationOptions

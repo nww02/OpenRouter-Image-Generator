@@ -6,6 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -79,14 +81,93 @@ public partial class ImageDocumentViewModel : Document
     public bool HasCurrentImage => CurrentImageBitmap is not null;
 
     /// <summary>
+    /// Builds a deterministic lookup key for the cost-history dictionary from a
+    /// model ID and its parameters. E.g.:
+    ///   "black-forest-labs/flux-3-image-klein|aspect_ratio=1:1|output_format=png"
+    /// </summary>
+    public static string MakeCostKey(string model, IReadOnlyDictionary<string, string?>? parameters)
+    {
+        if (parameters is null || parameters.Count == 0)
+            return model;
+
+        var sorted = parameters
+            .Where(p => p.Value is not null)
+            .OrderBy(p => p.Key)
+            .Select(p => $"{p.Key}={p.Value}");
+
+        return model + "|" + string.Join("|", sorted);
+    }
+
+    /// <summary>Tooltip for the Prompt→Image button.</summary>
+    public string GenerateButtonTooltip
+    {
+        get
+        {
+            var model = GetGenerationModel();
+            var key = MakeCostKey(model, GetParameterValues());
+            return FormatCostTooltip(key, "Generate image");
+        }
+    }
+
+    /// <summary>Tooltip for the Image→Prompt button.</summary>
+    public string ImageToPromptButtonTooltip
+    {
+        get
+        {
+            var model = GetVisionModel();
+            return FormatCostTooltip(model, "Analyse image and build prompt");
+        }
+    }
+
+    private string FormatCostTooltip(string key, string action)
+    {
+        if (_preferences.ModelCostAverages.TryGetValue(key, out var avg) && avg > 0)
+            return $"{action} (~${avg:F4})";
+        return $"{action} (cost unknown)";
+    }
+
+    private void RefreshTooltips()
+    {
+        OnPropertyChanged(nameof(GenerateButtonTooltip));
+        OnPropertyChanged(nameof(ImageToPromptButtonTooltip));
+    }
+
+    /// <summary>
+    /// Updates the running-average cost for a model/parameter combination and
+    /// persists it so the tooltip estimate survives restarts.
+    /// </summary>
+    private void UpdateCostAverage(string key, double newCost)
+    {
+        if (_preferences.ModelCostAverages.TryGetValue(key, out var prev))
+            _preferences.ModelCostAverages[key] = (prev + newCost) / 2.0;
+        else
+            _preferences.ModelCostAverages[key] = newCost;
+
+        _preferencesService.Save(_preferences);
+        RefreshTooltips();
+    }
+
+    /// <summary>
     /// Recomputes the inherited Document.Title shown in the MDI titlebar.
+    /// Format: first 20 characters of prompt + "…" + (W×H).
+    /// When there is no prompt or no record, shows "(no prompt)".
     /// </summary>
     private void UpdateTitle()
     {
-        var baseTitle = CurrentRecord?.Record.IsSaved == true
-            ? CurrentRecord.Record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")
-            : "Untitled";
-        Title = IsDirty ? baseTitle + " *" : baseTitle;
+        if (CurrentRecord?.Record is { } rec)
+        {
+            var prompt = rec.Prompt;
+            var promptPart = string.IsNullOrEmpty(prompt)
+                ? "(no prompt)"
+                : prompt.Length > 20
+                    ? prompt[..20] + "…"
+                    : prompt;
+            Title = $"{promptPart} ({rec.Width}×{rec.Height})";
+        }
+        else
+        {
+            Title = "(no prompt)";
+        }
     }
 
     public ImageDocumentViewModel(
@@ -99,6 +180,9 @@ public partial class ImageDocumentViewModel : Document
         _preferences = preferences;
         _providerFactory = providerFactory;
         _imageIOService = imageIOService;
+
+        // Refresh button tooltips whenever the window's parameters change.
+        ModelParameters.CollectionChanged += (_, _) => RefreshTooltips();
     }
 
     partial void OnCurrentImageBitmapChanged(Bitmap? value)
@@ -114,6 +198,11 @@ public partial class ImageDocumentViewModel : Document
     partial void OnCurrentRecordChanged(GenerationRecordViewModel? value)
     {
         UpdateTitle();
+    }
+
+    partial void OnGenerationModelChanged(string value)
+    {
+        RefreshTooltips();
     }
 
     /// <summary>
@@ -275,6 +364,14 @@ public partial class ImageDocumentViewModel : Document
 
             CostReported?.Invoke(result.Cost);
 
+            // Record the generation cost into the running average so the
+            // Prompt→Image tooltip can show an estimate next time.
+            if (result.Cost.HasValue)
+            {
+                var costKey = MakeCostKey(generationModel, GetParameterValues());
+                UpdateCostAverage(costKey, result.Cost.Value);
+            }
+
             var recordVm = new GenerationRecordViewModel(record);
             History.Add(recordVm);
 
@@ -299,7 +396,7 @@ public partial class ImageDocumentViewModel : Document
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task SaveImageAsync()
     {
         if (CurrentRecord is null || CurrentImageBitmap is null)
@@ -314,7 +411,7 @@ public partial class ImageDocumentViewModel : Document
             {
                 Title = "Save Image",
                 DefaultExtension = "png",
-                SuggestedFileName = _imageIOService.GenerateDefaultFileName(),
+                SuggestedFileName = _imageIOService.GenerateDefaultFileName(CurrentRecord.Record.Timestamp),
                 FileTypeChoices = new[]
                 {
                     new FilePickerFileType("PNG Image") { Patterns = new[] { "*.png" } }
@@ -341,6 +438,160 @@ public partial class ImageDocumentViewModel : Document
             await ShowErrorAsync(errMsg);
         }
     }
+
+    #region History context-menu actions
+
+    /// <summary>
+    /// Saves one history record to a file, using the record's own timestamp
+    /// to generate the default filename.
+    /// </summary>
+    public async Task SaveRecordAsync(GenerationRecordViewModel recordVm)
+    {
+        var topLevel = GetTopLevel();
+        if (topLevel is null) return;
+
+        var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Save Image",
+            DefaultExtension = "png",
+            SuggestedFileName = _imageIOService.GenerateDefaultFileName(recordVm.Record.Timestamp),
+            FileTypeChoices = new[]
+            {
+                new FilePickerFileType("PNG Image") { Patterns = new[] { "*.png" } }
+            }
+        });
+
+        if (file is null) return;
+
+        var filePath = file.Path.LocalPath;
+        await _imageIOService.SaveImageAsync(
+            filePath, recordVm.Record.ImageData, recordVm.Record.Prompt,
+            recordVm.Record.Model,
+            recordVm.Record.Parameters.Count > 0 ? recordVm.Record.Parameters : null,
+            recordVm.Record.Cost);
+
+        recordVm.Record.IsSaved = true;
+        IsDirty = History.Any(r => !r.Record.IsSaved);
+        UpdateTitle();
+    }
+
+    /// <summary>
+    /// Saves all history records to a chosen folder. Prompts the user for an
+    /// output folder and an optional filename prefix. Each file is named
+    /// "prefix-Generated-YYYYMMDD-HHmmss.png".
+    /// </summary>
+    public async Task SaveAllRecordsAsync()
+    {
+        var topLevel = GetTopLevel();
+        if (topLevel is null || History.Count == 0) return;
+
+        // Ask for the filename prefix
+        var dialog = new Views.InputDialog(
+            "Save All Images",
+            "Enter a filename prefix:",
+            "images");
+        if (topLevel is Window window)
+            await dialog.ShowDialog(window);
+        else
+            return;
+        if (dialog.Result is null) return; // cancelled
+
+        var prefix = string.IsNullOrWhiteSpace(dialog.Result) ? "images" : dialog.Result.Trim();
+
+        // Ask for the output folder
+        var folder = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Select output folder for saved images",
+            AllowMultiple = false,
+        });
+
+        if (folder.Count == 0) return;
+        var folderPath = folder[0].Path.LocalPath;
+
+        foreach (var recordVm in History)
+        {
+            var timestamp = recordVm.Record.Timestamp;
+            var fileName = $"{prefix}-Generated-{timestamp:yyyyMMdd-HHmmss}.png";
+            var filePath = System.IO.Path.Combine(folderPath, fileName);
+
+            await _imageIOService.SaveImageAsync(
+                filePath, recordVm.Record.ImageData, recordVm.Record.Prompt,
+                recordVm.Record.Model,
+                recordVm.Record.Parameters.Count > 0 ? recordVm.Record.Parameters : null,
+                recordVm.Record.Cost);
+
+            recordVm.Record.IsSaved = true;
+        }
+
+        IsDirty = History.Any(r => !r.Record.IsSaved);
+        UpdateTitle();
+    }
+
+    /// <summary>
+    /// Removes a history record from the list (discards it permanently).
+    /// </summary>
+    public void RemoveRecord(GenerationRecordViewModel recordVm)
+    {
+        History.Remove(recordVm);
+        if (History.Count > 0)
+        {
+            // If the removed record was the current one, restore the last.
+            if (CurrentRecord == recordVm)
+            {
+                var last = History[^1];
+                RestoreRecord(last);
+            }
+        }
+        else
+        {
+            CurrentRecord = null;
+            CurrentPrompt = string.Empty;
+            CurrentImageBitmap = null;
+        }
+    }
+
+    /// <summary>
+    /// Copies the generation prompt of a history record to the system clipboard.
+    /// </summary>
+    public async Task CopyPromptAsync(GenerationRecordViewModel recordVm)
+    {
+        var topLevel = GetTopLevel();
+        if (topLevel is null) return;
+
+        var clipboard = topLevel.Clipboard;
+        if (clipboard is null) return;
+
+        await clipboard.SetTextAsync(recordVm.Record.Prompt ?? string.Empty);
+    }
+
+    /// <summary>
+    /// Copies the image of a history record to the system clipboard as a
+    /// bitmap, via Avalonia's SetBitmapAsync clipboard extension. Windows and
+    /// macOS support image clipboard natively; on Linux it depends on the
+    /// clipboard backend.
+    /// </summary>
+    public async Task CopyImageAsync(GenerationRecordViewModel recordVm)
+    {
+        var topLevel = GetTopLevel();
+        if (topLevel?.Clipboard is not { } clipboard) return;
+
+        try
+        {
+            // A fresh Bitmap the clipboard can own — the platform clipboard
+            // may hold a reference for delayed rendering after this method
+            // returns, so it must NOT be disposed here.
+            var bitmap = ImageUtils.BytesToBitmap(recordVm.Record.ImageData);
+
+            await clipboard.SetBitmapAsync(bitmap);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CopyImageAsync] Failed: {ex.Message}");
+            await ShowErrorAsync($"Failed to copy image to clipboard: {ex.Message}");
+        }
+    }
+
+    #endregion
 
     [RelayCommand]
     private async Task EditModelParametersAsync()
@@ -402,6 +653,10 @@ public partial class ImageDocumentViewModel : Document
 
             CurrentPrompt = description;
             CostReported?.Invoke(visionCost);
+
+            // Record the vision-analysis cost for the Image→Prompt tooltip.
+            if (visionCost.HasValue)
+                UpdateCostAverage(visionModel, visionCost.Value);
         }
         catch (Exception ex)
         {
@@ -533,8 +788,11 @@ public partial class GenerationRecordViewModel : ObservableObject
         {
             var lines = new List<string>
             {
-                Record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")
+                Record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"),
             };
+
+            // Dimensions
+            lines.Add($"{Record.Width}×{Record.Height}");
 
             if (Record.Cost is { } cost)
                 lines.Add($"Cost: ${cost:0.0000}");

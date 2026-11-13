@@ -86,6 +86,10 @@ public class ModelPricing
     public decimal? PerImage { get; set; }
     public decimal? PerMegapixel { get; set; }
     public decimal? PerToken { get; set; }
+
+    /// <summary>Flat per-request fee charged by some providers/models.</summary>
+    public decimal? PerRequest { get; set; }
+
     public string? Currency { get; set; } = "USD";
 }
 

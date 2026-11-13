@@ -17,17 +17,15 @@ public partial class ModelBrowserDialog : Window
 
     /// <summary>
     /// Sets up the dialog with the provider and filter. Call before ShowDialog.
+    /// Triggers the initial model load immediately so the list is populated
+    /// when the window opens.
     /// </summary>
     public void Initialize(IImageGenerationProvider provider, string? apiKey, string filterType)
     {
         _viewModel = new ModelBrowserDialogViewModel(provider, apiKey, filterType);
         DataContext = _viewModel;
-    }
-
-    protected override void OnInitialized()
-    {
-        base.OnInitialized();
-        _viewModel?.LoadModelsCommand.Execute(null);
+        // Kick off the first load right away, before the window is shown.
+        _viewModel.LoadModelsCommand.Execute(null);
     }
 
     private void OnSelectClick(object? sender, RoutedEventArgs e)

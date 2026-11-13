@@ -1,6 +1,6 @@
 # AI Image Generator — Avalonia Application Specification
 
-> **Project:** Avalonia 12.1.2 desktop application for AI image generation via OpenRouter
+> **Project:** Avalonia 12.1.2 desktop application for AI image generation via OpenRouter (exclusive)
 > **Language:** C# / .NET 10.0
 > **Build:** Microsoft.NET.Sdk / NuGet
 > **Starting Scaffold:** Basic Avalonia project with Program.cs, App.axaml, App.axaml.cs, MainWindow.axaml, MainWindow.axaml.cs
@@ -21,20 +21,9 @@ A multiple-document interface (MDI) desktop application that allows users to gen
 Image Generator/
 ├── Program.cs                          (entry point — unchanged)
 ├── App.axaml                           (application definition — unchanged)
-├── App.axaml.cs                        (app init — unchanged)
+├── App.axaml.cs                        (app init, theme application — unchanged)
 ├── app.manifest                        (unchanged)
 ├── Image Generator.csproj              (add dependencies)
-│
-├── Models/
-│   ├── GenerationRecord.cs             (data: image bytes, prompt, dimensions, timestamp)
-│   ├── OpenRouterModel.cs              (data: model id, name, pricing, type)
-│   ├── PromptGenerationOptions.cs      (data: humour, style, topic, colour, time, mood)
-│   └── AppPreferences.cs              (data: api key, gen model, vision model)
-│
-├── Services/
-│   ├── OpenRouterService.cs            (HTTP calls: generate image, list models, chat completion)
-│   ├── ImageIOService.cs               (save/load PNG + companion .prompt file)
-│   └── PreferencesService.cs           (load/save preferences to disk, JSON or OS keychain)
 │
 ├── Views/                              (all view files)
 │   ├── MainWindow.axaml / .axaml.cs    (main application window with MenuBar & MDI container)
@@ -427,10 +416,10 @@ public class PromptGenerationOptions
 
 | Menu | Item | Accelerator | Action |
 |------|------|-------------|--------|
-| File | Load | Ctrl+L | Open file dialog for PNG, load companion prompt + metadata, create new ImageWindow |
+| File | Load | Ctrl+L | Open file dialog for PNG, load companion prompt + metadata, create new image document |
 | File | (separator) | | |
-| File | Quit | Ctrl+Q | Check dirty windows, confirm if needed, exit |
-| Edit | New Image | Ctrl+N | Create blank ImageWindow in MDI |
+| File | Quit | Ctrl+Q | Check dirty documents, confirm if needed, exit |
+| Edit | New Image | Ctrl+N | Create blank image document in MDI |
 | Edit | Preferences | Ctrl+, | Open PreferencesDialog |
 | About | About | | Show AboutDialog |
 
@@ -446,40 +435,73 @@ public class PromptGenerationOptions
 
 ---
 
-## 4. Provider-Agnostic API Architecture
+## 4. Provider Architecture
 
-The application uses a **provider abstraction** so users can use OpenRouter (default) or any OpenAI-compatible API (Ollama, LM Studio, LocalAI, custom endpoints).
+The application exclusively uses **OpenRouter** as its image-generation backend. The service layer is built around an `IImageGenerationProvider` interface for testability, but `ProviderFactory.CreateProvider()` always returns an `OpenRouterProvider` regardless of the `SelectedProviderId` in preferences (the field exists for forward compatibility — all ids fall back to OpenRouter).
 
-### 4.1 Provider Abstraction
+### 4.1 Provider Interface
 
 ```csharp
-// Interface for AI image generation providers
 public interface IImageGenerationProvider
 {
     string Name { get; }
     string BaseUrl { get; }
     bool RequiresApiKey { get; }
 
-    // Model discovery
+    // Model discovery — fetches the merged list of image gen + chat models
     Task<List<ProviderModelInfo>> ListModelsAsync(string? apiKey = null, CancellationToken ct = default);
 
-    // Image generation
-    Task<byte[]> GenerateImageAsync(string prompt, int width, int height, string model, string? apiKey, CancellationToken ct);
+    // Image generation — returns bytes + usage cost
+    Task<ImageGenerationResult> GenerateImageAsync(
+        string prompt, int width, int height, string model,
+        string? apiKey, CancellationToken ct,
+        IReadOnlyDictionary<string, object?>? parameters = null);
 
-    // Chat completion (for prompt generation & image-to-prompt)
-    Task<string> ChatCompletionAsync(List<ChatMessage> messages, string model, string? apiKey, CancellationToken ct);
+    // Chat completion (for prompt generation)
+    Task<string> ChatCompletionAsync(
+        List<ChatMessage> messages, string model,
+        string? apiKey, CancellationToken ct);
 
-    // Vision chat completion (image-to-prompt)
-    Task<string> VisionChatCompletionAsync(string prompt, byte[] imageBytes, string model, string? apiKey, CancellationToken ct);
+    // Chat completion with cost reporting
+    Task<(string reply, double? cost)> ChatCompletionWithCostAsync(
+        List<ChatMessage> messages, string model,
+        string? apiKey, CancellationToken ct);
+
+    // Vision chat completion (for image-to-prompt)
+    Task<string> VisionChatCompletionAsync(
+        string prompt, byte[] imageBytes, string model,
+        string? apiKey, CancellationToken ct);
+
+    // Vision chat completion with cost reporting
+    Task<(string reply, double? cost)> VisionChatCompletionWithCostAsync(
+        string prompt, byte[] imageBytes, string model,
+        string? apiKey, CancellationToken ct);
+
+    // Fetches a model's parameter schema (resolution, aspect_ratio, seed, etc.)
+    Task<List<ModelParameterDescriptor>> GetModelParameterDescriptorsAsync(
+        string model, string? apiKey, CancellationToken ct);
+
+    // Fetches remaining account credit balance in USD
+    Task<double?> GetCreditBalanceAsync(string? apiKey, CancellationToken ct);
+}
+```
+
+### 4.2 Result / Data Types
+
+```csharp
+public class ImageGenerationResult
+{
+    public byte[] ImageData { get; set; } = Array.Empty<byte>();
+    public double? Cost { get; set; }  // USD as reported by API usage.cost
 }
 
-// Model info returned by provider
 public class ProviderModelInfo
 {
     public string Id { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public ModelCapabilities Capabilities { get; set; } = new();
     public ModelPricing? Pricing { get; set; }
+    public string PricingText { get; set; } = "Free / Unknown";  // formatted for display
 }
 
 public class ModelCapabilities
@@ -487,8 +509,6 @@ public class ModelCapabilities
     public bool SupportsImageGeneration { get; set; }
     public bool SupportsVision { get; set; }
     public bool SupportsChat { get; set; }
-    public List<string> SupportedResolutions { get; set; } = new();
-    public List<string> SupportedAspectRatios { get; set; } = new();
 }
 
 public class ModelPricing
@@ -505,108 +525,36 @@ public class ChatMessage
     public string Content { get; set; } = string.Empty;
     public List<ChatImageContent>? Images { get; set; }
 }
-
-public class ChatImageContent
-{
-    public string Type { get; set; } = "image_url";
-    public string ImageUrl { get; set; } = string.Empty; // data URL or https URL
-}
 ```
 
-### 4.2 Provider Implementations
+### 4.3 OpenRouterProvider (the only provider)
 
-**OpenRouterProvider (default)** — Implements `IImageGenerationProvider`:
-- BaseUrl: `https://openrouter.ai/api/v1`
-- Uses OpenRouter-specific endpoints (`/images`, `/models` with image filter)
-- Handles OpenRouter's specific response formats
-- Adds required headers (`HTTP-Referer`, `X-Title`)
+- **BaseUrl:** `https://openrouter.ai/api/v1`
+- **Image generation:** `POST /images` — dedicated endpoint, NOT the chat completion API
+- **Model listing:** merges `GET /images/models` (authoritative image-gen catalogue with parameter descriptors) with `GET /v1/models` (full chat catalogue with pricing)
+- **Chat completion:** `POST /v1/chat/completions`
+- **Credits:** `GET /v1/credits`
+- **Headers:** `Authorization: Bearer <key>`, `HTTP-Referer: https://localhost/`, `X-Title: AI Image Generator`
+- **Timeout:** 5 minutes (slower models can take several minutes)
 
-**OpenAICompatibleProvider (generic)** — For Ollama, LM Studio, LocalAI, etc.:
-- BaseUrl: configurable (e.g., `http://localhost:11434/v1` for Ollama)
-- Uses standard OpenAI-compatible endpoints (`/images/generations`, `/chat/completions`, `/models`)
-- No special headers required
-- Simpler model filtering (checks model capabilities from response)
-
-### 4.3 Provider Configuration (in Preferences)
+### 4.4 ProviderFactory
 
 ```csharp
-public class AppPreferences
+public class ProviderFactory : IProviderFactory
 {
-    // Provider selection
-    public string SelectedProviderId { get; set; } = "openrouter"; // or "custom"
+    // Returns a single entry: OpenRouter.
+    public List<ProviderDescriptor> GetAvailableProviders() { ... }
 
-    // OpenRouter settings
-    public string OpenRouterApiKey { get; set; } = string.Empty;
-    public string OpenRouterGenerationModel { get; set; } = "stabilityai/stable-diffusion-3.5";
-    public string OpenRouterVisionModel { get; set; } = "openai/gpt-4o";
-
-    // Custom provider settings
-    public string CustomProviderName { get; set; } = "Custom";
-    public string CustomProviderBaseUrl { get; set; } = "http://localhost:11434/v1";
-    public string CustomProviderApiKey { get; set; } = string.Empty; // optional
-    public string CustomGenerationModel { get; set; } = "";
-    public string CustomVisionModel { get; set; } = "";
-
-    // UI theme: "Dark", "Light" or "System" (default)
-    public string Theme { get; set; } = "System";
+    // Always returns an OpenRouterProvider. Provider id from preferences is
+    // accepted but ignored — forward-compatibility only.
+    public IImageGenerationProvider CreateProvider(string providerId, AppPreferences prefs)
+    {
+        return new OpenRouterProvider();
+    }
 }
 ```
 
-### 4.4 Provider Factory
-
-```csharp
-public interface IProviderFactory
-{
-    IImageGenerationProvider CreateProvider(string providerId, AppPreferences prefs);
-    List<ProviderDescriptor> GetAvailableProviders();
-}
-
-public class ProviderDescriptor
-{
-    public string Id { get; set; }
-    public string DisplayName { get; set; }
-    public string Description { get; set; }
-    public bool RequiresCustomUrl { get; set; }
-    public string DefaultBaseUrl { get; set; }
-}
-```
-
-**Available providers by default:**
-| ID | Name | Default URL | Notes |
-|---|---|---|---|
-| `openrouter` | OpenRouter | `https://openrouter.ai/api/v1` | Full model catalog, pricing, vision models |
-| `ollama` | Ollama (Local) | `http://localhost:11434/v1` | Local models, no API key needed |
-| `lmstudio` | LM Studio | `http://localhost:1234/v1` | Local models with OpenAI-compatible API |
-| `localai` | LocalAI | `http://localhost:8080/v1` | Self-hosted inference |
-| `custom` | Custom Endpoint | User-defined | Any OpenAI-compatible API |
-
-### 4.5 API Endpoints by Provider
-
-Each provider handles its own endpoint specifics:
-
-| Provider | Image Gen Endpoint | Models Endpoint | Auth |
-|---|---|---|---|
-| OpenRouter | `POST /images` (or `/chat/completions`) | `GET /models?output_modalities=image` | Bearer + Referer |
-| Ollama | `POST /images/generations` | `GET /models` | Optional Bearer |
-| LM Studio | `POST /images/generations` | `GET /models` | Optional Bearer |
-| Custom | Configurable | Configurable | Configurable |
-
-### 4.6 Preferences Dialog Updates
-
-Add provider selector with dynamic fields:
-```
-Provider: [Dropdown: OpenRouter ▼ | Ollama | LM Studio | LocalAI | Custom...]
-  ├─ If OpenRouter: API Key, Gen Model, Vision Model, [Show All Models]
-  ├─ If Ollama/LM Studio: Base URL (editable), Gen Model, Vision Model
-  └─ If Custom: Provider Name, Base URL, API Key (optional), Gen Model, Vision Model
-```
-
-Add theme selector (see section 5.7 for full dialog layout):
-```
-Theme: [Dropdown: System ▼ | Light | Dark]   (default: System)
-```
-
-This way users get OpenRouter's rich model catalog by default, but can easily switch to local inference or other gateways.
+There is also an `OpenAICompatibleProvider` class in the codebase (implements the same interface for OpenAI-compatible endpoints), but it is **not wired into the factory** and is unused by the running application.
 
 ---
 
@@ -622,73 +570,96 @@ This way users get OpenRouter's rich model catalog by default, but can easily sw
 
 ### 5.2 List Models
 
-**Endpoint:** `GET /v1/models`
+**Endpoints (two, merged in code):**
 
-This endpoint returns all available models. We filter client-side for models that support image generation (checking `model.supports.image_generation`) or vision (checking `model.supports.vision`).
+1. **`GET /images/models`** — Authoritative image-gen catalogue. Every model here generates images. Each entry includes `supported_parameters` (the model's parameter schema). **Does not include pricing.**
 
-**Response format (simplified):**
+2. **`GET /v1/models`** — Full catalogue (all chat, vision, and image models). Includes **pricing** but lacks parameter descriptors.
+
+The app fetches both in parallel and merges them by model ID: the image catalogue provides the model list and parameter schema, the full catalogue provides pricing.
+
+**`GET /images/models` response (simplified):**
 ```json
 {
   "data": [
     {
       "id": "stabilityai/stable-diffusion-3.5",
       "name": "Stable Diffusion 3.5",
-      "architecture": { "modality": "text-to-image" },
-      "pricing": { "image": 0.004 },
-      "supports": { "image_generation": true, "vision": false }
-    },
-    ...
+      "architecture": { "input_modalities": ["text"], "output_modalities": ["image"] },
+      "supported_parameters": {
+        "resolution": { "type": "enum", "values": ["1024x1024", "512x512", ...] },
+        "n": { "type": "range", "min": 1, "max": 10 },
+        "seed": { "type": "boolean" },
+        "output_format": { "type": "enum", "values": ["png", "jpeg", "webp"] },
+        ...
+      }
+    }
   ]
 }
 ```
 
+**`GET /v1/models` response (simplified):**
+```json
+{
+  "data": [
+    {
+      "id": "stabilityai/stable-diffusion-3.5",
+      "name": "Stable Diffusion 3.5",
+      "pricing": { "image": 0.004, "prompt": 0.0, "completion": 0.0 }
+    }
+  ]
+}
+```
+
+Filters are applied client-side: models are classified as Image Gen (`output_modalities` contains "image"), Vision (`input_modalities` contains "image"), or Chat/Other. The model browser shows all, with an Image-Gen filter preselected when choosing a generation model.
+
 ### 5.3 Image Generation
 
-**Endpoint:** `POST /v1/chat/completions` (OpenRouter uses chat completion format for image gen)
+**Endpoint:** `POST /images`
 
-OpenRouter uses the OpenAI-compatible chat completion format even for image generation. The generation model is specified in the model field.
+The app uses OpenRouter's dedicated image-generation endpoint — NOT the chat completions API.
 
 **Request:**
 ```json
 {
   "model": "stabilityai/stable-diffusion-3.5",
-  "messages": [
-    {
-      "role": "user",
-      "content": [
-        { "type": "text", "text": "Generate an image of a cat on a train" }
-      ]
-    }
-  ],
-  "response_format": {
-    "type": "image"
-  }
+  "prompt": "a cat on a train in a whimsical cartoon style",
+  "output_format": "png",
+  "resolution": "1024x1024",
+  "n": 1
 }
 ```
 
-**Alternative / preferred approach:** Some OpenRouter image models use the standard chat endpoint but return base64-encoded images in the response content, or use the `/v1/images/generations` endpoint (OpenAI-compatible).
+All user-chosen model parameters (resolution, aspect_ratio, quality, seed, output_compression, etc.) are merged into this top-level body. Parameters whose value is null (unset by the user) are omitted — the model applies its own defaults.
 
 **Response:**
 ```json
 {
-  "id": "gen-xxx",
-  "choices": [
+  "data": [
     {
-      "message": {
-        "content": "data:image/png;base64,iVBORw0KGgo...",
-        "role": "assistant"
-      }
+      "b64_json": "iVBORw0KGgo...",
+      "media_type": "image/png"
     }
   ],
-  "usage": { "cost": 0.004 }
+  "usage": {
+    "cost": 0.004,
+    "prompt_tokens": 20,
+    "completion_tokens": 0,
+    "total_tokens": 20
+  }
 }
 ```
 
-The service extracts the base64 data, decodes it to bytes, and constructs an Avalonia `Image` object.
+- The first `data[0].b64_json` is base64-decoded to raw image bytes.
+- `usage.cost` is extracted and stored as the generation's cost in USD — saved into the `.prompt` metadata and shown in the status bar.
+- If the API returns an `error` block (even on HTTP 200), an `ApiException` is thrown with the error message and code.
+- The `ImageGenerationResult` returned to the caller bundles `ImageData` (byte[]) and `Cost` (double?).
 
 ### 5.4 Chat Completion (for Prompt Generation & Image-to-Prompt)
 
 **Endpoint:** `POST /v1/chat/completions`
+
+Same OpenRouter endpoint. Both prompt generation and image-to-prompt use the `ChatCompletionWithCostAsync` and `VisionChatCompletionWithCostAsync` methods so their small costs can be tracked in the session total.
 
 **Request (Prompt Gen):**
 ```json
@@ -715,7 +686,7 @@ The service extracts the base64 data, decodes it to bytes, and constructs an Ava
     {
       "role": "user",
       "content": [
-        { "type": "text", "text": "Describe this image in detail as a prompt for an image generation model." },
+        { "type": "text", "text": "Describe this image in vivid detail as a prompt for an image generation AI. Focus on: subject, setting, lighting, colours, composition, style, mood." },
         { "type": "image_url", "image_url": { "url": "data:image/png;base64,iVBOR..." } }
       ]
     }
@@ -723,18 +694,31 @@ The service extracts the base64 data, decodes it to bytes, and constructs an Ava
 }
 ```
 
+Both return `(string reply, double? cost)` — the reply text replaces the prompt box content, and the cost is added to the session total.
+
 ### 5.5 Pricing Retrieval
 
-The model listing endpoint includes `pricing` for each model. For image models:
+Model pricing comes from the merged listing (section 5.2). The `PricingText` string is formatted for display:
+
+- Image models: `"$0.0040/img"`
+- Token-charged models: `"$0.000010/tok  $0.000040/tok"` (prompt / completion)
+- Free models: `"Free / Unknown"`
+
+### 5.6 Credit Balance
+
+**Endpoint:** `GET /v1/credits`
+
+**Response:**
 ```json
-"pricing": { "image": 0.004, "per_image": 0.004 }
-```
-For chat models:
-```json
-"pricing": { "prompt": 0.00001, "completion": 0.00004 }
+{
+  "data": {
+    "total_credits": 50.00,
+    "total_usage": 12.34
+  }
+}
 ```
 
-These prices are shown in the ModelBrowserDialog as formatted strings.
+Balance = `total_credits - total_usage`, shown in the status bar as `Balance: $37.66`. Refreshed at startup and after every billable request.
 
 ---
 
@@ -846,7 +830,7 @@ These prices are shown in the ModelBrowserDialog as formatted strings.
 1. User clicks `Edit > Preferences` (or `Ctrl+,`)
 2. `PreferencesDialog` opens as a modal window
 3. Fields (in layout order):
-   - **Provider:** `ComboBox` with options **"OpenRouter"**, **"Ollama"**, **"LM Studio"**, **"LocalAI"**, **"Custom"** — selecting a non-OpenRouter provider shows the custom provider fields (Base URL, optional API key)
+   - **Provider:** `ComboBox` with options **"OpenRouter"**, **"Custom"** — custom provider fields (name, base URL, optional API key) exist for forward compatibility but are not wired to a functional provider
    - **Theme:** `ComboBox` with options **"Dark", "Light", "System"** (default: **"System"**). Changing the selection previews the theme immediately; **Save** commits it, **Cancel** reverts.
    - **API Key:** `TextBox` with `PasswordChar="•"` for masking
    - **Image Generation Model:** `TextBox` (read-only) + `[Browse...]` button
@@ -895,7 +879,7 @@ These prices are shown in the ModelBrowserDialog as formatted strings.
 
 ### 5.10 Prompt Generator Dialog
 
-**Trigger:** Click `[Generate a Prompt]` button in any ImageWindow
+**Trigger:** Click `[Build Prompt]` button in any image document
 
 **Layout:**
 ```
@@ -934,9 +918,15 @@ Dialog Title: "Prompt Generator"
   Buttons: [Randomize]  [Generate Prompt]  [Cancel]
 ```
 
+**Unique features:**
+- **`<skip>`** — the first entry in every dropdown. Choosing it means "leave this theme out" — the LLM decides for itself. `<skip>` is never chosen by Randomize; it stays a deliberate user choice.
+- **Custom text box** — a free-text field for extra instructions ("...but make it a lighthouse", "in the style of a 1950s travel poster"). Included in the LLM prompt when non-empty.
+- **Generated prompt preview** — the LLM result appears in a preview area inside the dialog. The user can read it and click **Use This** to apply it, or try again with different values.
+- **Cost reporting** — every Build Prompt call fires `CostReported` which forwards to the session total on the status bar.
+
 **Behaviour:**
-- `[Randomize]`: Picks a random value from each dropdown. All dropdowns change at once.
-- `[Generate Prompt]`:
+- `[Randomize]`: Picks a random value from each dropdown whose current selection is not `<skip>`. All non-skip dropdowns change at once.
+- `[Build Prompt]`:
   1. Gathers current selections into a `PromptGenerationOptions` object
   2. Options are formatted into a prompt for an LLM:
      ```
@@ -950,28 +940,29 @@ Dialog Title: "Prompt Generator"
 
      Output ONLY the generated prompt text, no introduction or labels.
      ```
-  3. Sends to OpenRouter chat completion using the free tier / cheapest model (e.g., `openai/gpt-4o-mini`)
-  4. LLM response text is returned to the calling ImageWindow
-  5. Dialog closes
-  6. Generated text is inserted into the ImageWindow's prompt textarea
+  3. Sends to `ChatCompletionWithCostAsync` using the configured prompt-generation model (e.g., `openai/gpt-4o-mini`)
+  4. The LLM response text appears in the preview area; the cost is recorded
+  5. User clicks **Use This** to insert it into the image window's prompt textarea, or **Cancel** to close without changing the prompt
+  6. The dialog stays open so the user can refine and try again — it doesn't auto-close
 - `[Cancel]`: Closes dialog without action
 
 ### 5.11 Image-to-Prompt Flow
 
-**Trigger:** Click `[Generate Prompt from Image]` button
+**Trigger:** Click `[Image->Prompt]` button
 
 **Precondition:** Current canvas must have an image loaded (not black/empty)
 
 **Flow:**
-1. Button is disabled if no image is loaded
+1. Button is disabled if no image is loaded (bound to `HasCurrentImage`)
 2. On click:
-   a. Takes the current image from the canvas
-   b. Encodes to base64 PNG
-   c. Calls OpenRouter chat completion with the vision model (as set in Preferences)
-   d. Message: user message with the image + "Describe this image in vivid detail as a prompt for an image generation AI. Focus on: subject, setting, lighting, colours, composition, style, mood."
-   e. LLM returns a descriptive text
-   f. That text is placed in the prompt textarea (overwriting whatever is there)
-   g. User can then modify and click Generate to create a new image based on the description
+   a. Takes the current image from the record's `ImageData` bytes
+   b. Calls `VisionChatCompletionWithCostAsync(prompt, imageBytes, visionModel, apiKey, ct)`
+   c. System prompt: "Describe this image in vivid detail as a prompt for an image generation AI. Focus on: subject, setting, lighting, colours, composition, style, mood."
+   d. LLM returns `(description, cost)` — the cost is forwarded to the session total via `CostReported`
+   e. The description replaces the prompt textarea content (overwriting whatever is there)
+   f. A dimmed overlay with "Generating..." text appears while the vision model works
+   g. On error: an error dialog is shown; the overlay is cleared
+   h. User can then modify and click Prompt->Image to create a new image based on the description
 
 ---
 
@@ -1030,45 +1021,76 @@ Dialog Title: "Prompt Generator"
 
 ### 7.1 Async API Calls
 
-All HTTP calls to OpenRouter must run off the UI thread:
+All HTTP calls to OpenRouter run off the UI thread via `AsyncRelayCommand`. The `OpenRouterProvider` uses `HttpClient` (inherently async I/O) with a 5-minute timeout for slow models. Responses are parsed on a background thread; UI updates happen naturally via CommunityToolkit property changes (the MVVM framework dispatches them to the UI thread):
 
 ```csharp
 // Pattern for image generation — using AsyncRelayCommand (CommunityToolkit.Mvvm)
 [AsyncRelayCommand]
-private async Task GenerateImage()
+private async Task GenerateImageAsync()
 {
-    IsGenerating = true;
+    if (IsGenerating || string.IsNullOrWhiteSpace(CurrentPrompt))
+        return;
 
+    IsGenerating = true;
     try
     {
-        // HttpClient is inherently async I/O — no need for Task.Run
-        var imageBytes = await _openRouterService.GenerateImageAsync(
-            _preferences.ApiKey,
-            _preferences.GenerationModel,
-            CurrentPrompt,
-            ImageWidth,
-            ImageHeight);
+        var provider = _providerFactory.CreateProvider(
+            _preferences.SelectedProviderId, _preferences);
+        var apiKey = _preferences.OpenRouterApiKey;
 
-        // We're back on the UI thread — safe to update properties
+        // Merge this window's chosen model parameters into the request.
+        var parameters = ModelParameters
+            .Where(p => p.Value is not null)
+            .ToDictionary(p => p.Descriptor.Name,
+                p => Models.ModelParameters.ToRequestValue(p.Descriptor.Name, p.Value));
+
+        var result = await provider.GenerateImageAsync(
+            CurrentPrompt, 0, 0,
+            GetGenerationModel(), apiKey,
+            CancellationToken.None, parameters);
+
+        // Record the actual output dimensions from the decoded bitmap.
+        int outWidth = 0, outHeight = 0;
+        using (var ms = new System.IO.MemoryStream(result.ImageData))
+        using (var bmp = new Bitmap(ms))
+        {
+            outWidth = bmp.PixelSize.Width;
+            outHeight = bmp.PixelSize.Height;
+        }
+
         var record = new GenerationRecord
         {
-            ImageData = imageBytes,
+            ImageData = result.ImageData,
             Prompt = CurrentPrompt,
-            Width = ImageWidth,
-            Height = ImageHeight,
-            Timestamp = DateTime.Now,
-            IsSaved = false
+            Width = outWidth,
+            Height = outHeight,
+            IsSaved = false,
+            Model = GetGenerationModel(),
+            Cost = result.Cost,
+            Parameters = ModelParameters
+                .Where(p => p.Value is not null)
+                .ToDictionary(p => p.Descriptor.Name, p => p.Value)
         };
 
-        History.Add(record);
-        CurrentRecord = record;
-        CurrentImageBytes = imageBytes;
+        // Cost reported upward to the session total
+        CostReported?.Invoke(result.Cost);
+
+        var recordVm = new GenerationRecordViewModel(record);
+        History.Add(recordVm);
+        CurrentRecord = recordVm;
+        CurrentImageBitmap = ImageUtils.BytesToBitmap(result.ImageData);
         IsDirty = true;
+        UpdateTitle();
+
+        foreach (var item in History)
+            item.IsSelected = item == recordVm;
     }
     catch (Exception ex)
     {
-        // Show error dialog
-        await _dialogService.ShowErrorAsync("Generation failed: " + ex.Message);
+        var errMsg = ex is ApiException apiEx
+            ? apiEx.ToDisplayString()
+            : $"Generation failed: {ex.Message}";
+        await ShowErrorAsync(errMsg);
     }
     finally
     {
@@ -1078,9 +1100,9 @@ private async Task GenerateImage()
 ```
 
 ### 7.2 UI Thread Safety
-- All UI mutations (updating canvas, history panel, text fields, button states) must go through `Avalonia.Application.Instance.InvokeLater()` or `Platform.RunLater()`
-- Heavy image processing (thumbnail generation, base64 encode/decode) can stay on the background thread but must not touch UI objects
-- Thumbnails: generate scaled-down versions of images on the background thread, then `InvokeLater` to update the history panel
+- All UI mutations happen through CommunityToolkit `[ObservableProperty]` bindings — no explicit `InvokeLater` calls are needed
+- Heavy image processing (thumbnail generation, base64 decode) runs on the generation ViewModel's background work and touches only the bytes, not UI objects
+- Thumbnails: `ImageUtils.CreateThumbnail(imageBytes, 160)` creates scaled `Bitmap` objects; the MVVM binding engine handles cross-thread dispatch when setting the `Image.Source` property
 
 ---
 
@@ -1118,37 +1140,43 @@ Thumbnails should be generated asynchronously after each generation completes, b
 
 ## 9. Unsaved Changes Tracking
 
-Each `ImageWindow` tracks its dirty state:
+Each `ImageDocumentViewModel` tracks its dirty state. Saving the current image clears `IsDirty` only when every record in the history has `IsSaved == true`:
 
 ```csharp
-// In ImageWindowViewModel.cs
-public partial class ImageWindowViewModel : ObservableObject
+// In ImageDocumentViewModel.cs
+[ObservableProperty]
+private bool _isDirty;
+
+private void UpdateTitle()
 {
-    [ObservableProperty]
-    private bool _isDirty;
-
-    // Called when a new generation is made
-    private void OnGenerationCreated()
-    {
-        IsDirty = History.Any(r => !r.IsSaved);
-    }
-
-    // Called when the user saves the current record
-    public void MarkSaved()
-    {
-        if (CurrentRecord != null)
-        {
-            CurrentRecord.IsSaved = true;
-            // Re-check: if all records are saved, IsDirty = false
-            IsDirty = History.Any(r => !r.IsSaved);
-        }
-    }
+    var baseTitle = CurrentRecord?.Record.IsSaved == true
+        ? CurrentRecord.Record.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")
+        : "Untitled";
+    Title = IsDirty ? baseTitle + " *" : baseTitle; // Shows * in the MDI titlebar
 }
 
-// In MainWindowViewModel.cs
-public bool HasUnsavedWindows()
+// Dirty state is set to true when a new generation completes
+// (in GenerateImageAsync: IsDirty = true).
+
+// Saving clears it when all records are saved:
+private async Task SaveImageAsync()
 {
-    return _openViewModels.Any(vm => vm.IsDirty);
+    // ... write files ...
+    CurrentRecord.Record.IsSaved = true;
+    IsDirty = History.Any(r => !r.Record.IsSaved);
+    UpdateTitle();
+}
+
+// DockFactory checks before closing a document:
+public override void CloseDockable(IDockable? dockable)
+{
+    if (dockable is ImageDocumentViewModel docVm && docVm.IsDirty)
+    {
+        // Shows async confirmation dialog without blocking the UI thread
+        _ = ConfirmAndCloseAsync(docVm, mainWindow);
+        return;
+    }
+    base.CloseDockable(dockable);
 }
 ```
 
@@ -1167,22 +1195,22 @@ This is the recommended build sequence — each phase is testable before moving 
 
 ### Phase 2: UI Skeleton
 6. **MainWindow** — Set up MenuBar with all menu items (actions initially empty or logging)
-7. **MDI Container** — Create or integrate the MDI floating-window container in MainWindow
-8. **ImageWindow skeleton** — Create the ImageWindow class with layout (canvas area, dimensions bar, prompt area, buttons)
-9. **ImageCanvas control** — Custom control that paints an Image or black fill
-10. **HistoryPanel component** — Scrollable vertical stack of thumbnails
-11. **Edit > New Image** — Wire up to create and add a new ImageWindow to MDI
+7. **MDI Container** — Create or integrate the DocumentDock with Mdi layout mode in MainWindow
+8. **ImageDocumentView** — Create the document UserControl with layout (canvas area, prompt textarea, buttons row)
+9. **Canvas hosting** — Use `<Border><Image Stretch="Uniform"/></Border>` for image display (no custom control needed)
+10. **History panel** — Scrollable `ItemsControl` with vertical `StackPanel` of thumbnail buttons
+11. **Edit > New Image** — Wire up DockFactory to create and add a new `ImageDocumentViewModel` to the dock
 
 ### Phase 3: API Integration
-12. **HTTP Client / OpenRouterService** — Implement model listing, image generation, chat completion
-13. **Generate button** — Wire to OpenRouterService, decode response to image, update canvas + history
-14. **History navigation** — Click thumbnail to restore record (image, prompt, dimensions)
-15. **Error handling** — Show API errors to user
+12. **OpenRouterProvider** — Implement `IImageGenerationProvider`: model listing (merge `/images/models` + `/models`), image generation (`POST /images`), chat completion, vision, credits
+13. **Generate button** — Wire to `GenerateImageAsync`, decode base64 response, update canvas + history + cost/session total
+14. **History navigation** — Click thumbnail to restore record (image, prompt, parameter values)
+15. **Error handling** — `ApiException` with formatted display text, shown in `ErrorDialog`
 
 ### Phase 4: Save & Load
-16. **Save button** — File save dialog, write PNG + .prompt companion file
-17. **File > Load** — File open dialog, read PNG + companion prompt, create ImageWindow
-18. **Tracking saved state** — Mark records saved when written to disk
+16. **Save button** — File save dialog, write PNG + JSON `.prompt` sidecar (prompt, model, parameters, cost)
+17. **File > Load** — File open dialog, read PNG + metadata sidecar, create image document adopting the sidecar's model
+18. **Tracking saved state** — Mark records saved when written to disk; `IsDirty` computed from all records
 
 ### Phase 5: Dialogs
 19. **About Dialog** — Simple info window
@@ -1348,12 +1376,13 @@ Peaceful, Chaotic, Mysterious, Joyful, Melancholic, Tense, Dreamy, Epic, Cozy, G
 
 ## Appendix C: OpenRouter API Reference
 
-| Operation | Method | Endpoint | Auth |
-|-----------|--------|----------|------|
-| List models | GET | `/v1/models` | Bearer token |
-| Image generation | POST | `/v1/chat/completions` | Bearer token |
-| Chat completion | POST | `/v1/chat/completions` | Bearer token |
-| Get credits | GET | `/v1/credits` | Bearer token |
+| Operation | Method | Endpoint | Auth | Notes |
+|-----------|--------|----------|------|-------|
+| List image models | GET | `/api/v1/images/models` | Bearer token | Authoritative image-gen catalogue with parameter descriptors |
+| List all models | GET | `/api/v1/models` | Bearer token | Full catalogue with pricing — merged with image models in code |
+| Image generation | POST | `/api/v1/images` | Bearer token | Dedicated endpoint — NOT the chat completions API |
+| Chat completion | POST | `/api/v1/chat/completions` | Bearer token | Used for prompt generation and vision analysis |
+| Get credit balance | GET | `/api/v1/credits` | Bearer token | Returns `total_credits` and `total_usage` |
 
 Required headers for all requests:
 ```

@@ -1,0 +1,158 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:Image_Generator.ViewModels.Documents"
+             mc:Ignorable="d" d:DesignWidth="640" d:DesignHeight="420"
+             x:Class="Image_Generator.Views.Documents.ImageDocumentView"
+             x:DataType="vm:ImageDocumentViewModel">
+
+    <UserControl.Styles>
+        <Style Selector="Border.historyItem">
+            <Setter Property="BorderBrush" Value="LightGray" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="2" />
+        </Style>
+        <Style Selector="Border.historyItem:selected">
+            <Setter Property="BorderBrush" Value="DodgerBlue" />
+        </Style>
+        <Style Selector="TextBlock.loadingText">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+    </UserControl.Styles>
+
+    <!-- Layout: the window drives all sizing. Rows are star-sized (3*:1*) so the
+         image canvas and controls panel split the window's height proportionally
+         and can never grow past the MDI window bounds — star rows are sized from
+         available space, not from their content. The splitter converts both rows
+         to fixed pixel heights when dragged. The controls panel is one panel with
+         three rows; its two Auto rows have MinHeights matching their fixed content
+         (dimensions row, buttons row) so vertical squeeze only shrinks the prompt
+         row, which itself never goes below one line (MinHeight 34). -->
+<Grid MinWidth="500">
+    <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="180" />
+        <ColumnDefinition Width="*" MinWidth="320"/>
+    </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+    <RowDefinition Height="3*" MinHeight="208" />
+    <RowDefinition Height="Auto" />
+    <RowDefinition Height="1*"  MinHeight="144"/>
+    </Grid.RowDefinitions>
+        
+        <!-- Left: History Panel -->
+        <Border Grid.Row="0" Grid.RowSpan="3" Grid.Column="0"
+                Margin="4,4,0,4"
+                BorderBrush="Gray" BorderThickness="0,0,1,0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding History}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Vertical" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:GenerationRecordViewModel">
+                            <Button Command="{Binding $parent[UserControl].((vm:ImageDocumentViewModel)DataContext).RestoreRecordCommand}"
+                                    CommandParameter="{Binding}"
+                                    HorizontalContentAlignment="Stretch"
+                                    Padding="0"
+                                    Background="Transparent"
+                                    ToolTip.Tip="{Binding TooltipText}"
+                                    Margin="4,2">
+                                <Border Classes="historyItem"
+                                        IsEnabled="{Binding IsSelected}">
+                                    <StackPanel>
+                                        <Image Source="{Binding Thumbnail}" Width="160" Stretch="Uniform" />
+                                        <TextBlock Text="{Binding Record.Timestamp, StringFormat='\{0:HH:mm:ss\}'}"
+                                                   FontSize="10"
+                                                   HorizontalAlignment="Center"
+                                                   Margin="0,2" />
+                                    </StackPanel>
+                                </Border>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Top: Main Canvas Area with Loading Overlay -->
+        <Grid Grid.Row="0" Grid.Column="1" Margin="8,4,8,4"
+              x:Name="CanvasHost" MinWidth="100" MinHeight="140">
+            <Border Background="Black" CornerRadius="2">
+                <!-- Stretch="Uniform" scales the image proportionally to fit the canvas -->
+                <Image Source="{Binding CurrentImageBitmap}" Stretch="Uniform" />
+            </Border>
+
+            <!-- Loading overlay during generation -->
+            <Border Background="#88000000"
+                    CornerRadius="2"
+                    IsVisible="{Binding IsGenerating}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
+                    <ProgressBar IsIndeterminate="True" Width="120" Height="6" />
+                    <TextBlock Text="Generating..."
+                               Classes="loadingText"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Splitter separating the image canvas from the controls panel -->
+        <GridSplitter Grid.Row="1" Grid.Column="1"
+                      ResizeDirection="Rows"
+                      ResizeBehavior="PreviousAndNext"
+                      Height="6"
+                      Margin="8,0,8,0"
+                      Background="#DDDDDD" />
+
+        <!-- Bottom: Controls Panel (single panel, two rows).
+             The buttons row has a MinHeight matching its fixed content so a
+             vertical window squeeze can never squash it; the star (prompt)
+             row is the only one that gives way, and its own MinHeight keeps
+             it at least one line tall. -->
+        <Grid Grid.Row="2" Grid.Column="1"
+              x:Name="ControlsGrid"
+              Margin="8,0,8,8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" MinHeight="37" />
+                <RowDefinition Height="Auto" MinHeight="42" />
+            </Grid.RowDefinitions>
+
+            <!-- Row 1: Prompt textarea. Stretches to 100% of the width and height
+                 of this grid row — it never sizes itself to its text; long text
+                 scrolls inside it. This is the only row that changes when the
+                 splitter or window resize the panel. -->
+            <TextBox Grid.Row="0"
+                     x:Name="PromptTextBox"
+                     Text="{Binding CurrentPrompt}"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     HorizontalAlignment="Stretch"
+                     VerticalAlignment="Stretch"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     PlaceholderText="Enter your prompt here..." />
+
+            <!-- Row 2: Buttons, floated right. The ⋯ opens the model-parameters
+                 editor (per-window model override + generation parameters). -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal"
+                        x:Name="ButtonsRow" Height="42"
+                        HorizontalAlignment="Right" Margin="0,4,0,0" Spacing="8">
+                <Button Content="⋯"
+                        Command="{Binding $parent[UserControl].((vm:ImageDocumentViewModel)DataContext).EditModelParametersCommand}"
+                        ToolTip.Tip="Edit this window's model and generation parameters"
+                        MinWidth="32" Padding="8,4" />
+                <Button Content="Build Prompt" Command="{Binding GeneratePromptCommand}" />
+                <Button Content="Image->Prompt" Command="{Binding GeneratePromptFromImageCommand}"
+                        IsEnabled="{Binding HasCurrentImage}" />
+                <Button Content="Prompt->Image" Command="{Binding GenerateImageCommand}"
+                        IsEnabled="{Binding !IsGenerating}" />
+                <Button Content="Save" Command="{Binding SaveImageCommand}"
+                        IsEnabled="{Binding HasCurrentImage}" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>

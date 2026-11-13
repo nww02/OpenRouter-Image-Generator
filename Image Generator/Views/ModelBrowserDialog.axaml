@@ -1,0 +1,110 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Image_Generator.ViewModels"
+        xmlns:models="using:Image_Generator.Models"
+        x:Class="Image_Generator.Views.ModelBrowserDialog"
+        x:DataType="vm:ModelBrowserDialogViewModel"
+        Title="Model Browser"
+        Width="650" Height="480"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.pricing">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="DimGray" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.modelId">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="Gray" />
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12">
+
+        <!-- Loading indicator -->
+        <ProgressBar Grid.Row="0" IsIndeterminate="True"
+                     IsVisible="{Binding IsLoading}"
+                     Margin="0,0,0,6" Height="4" />
+
+        <!-- Search + Filter toolbar: filter dropdown, Free checkbox, refresh icon -->
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,6">
+            <TextBox Grid.Column="0"
+                     Text="{Binding SearchText}"
+                     PlaceholderText="Type to filter models by name..."
+                     Margin="0,0,6,0" />
+            <ComboBox Grid.Column="1"
+                      ItemsSource="{x:Static vm:ModelBrowserDialogViewModel.FilterOptions}"
+                      SelectedItem="{Binding SelectedFilter}"
+                      MinWidth="110"
+                      Margin="0,0,6,0" />
+            <CheckBox Grid.Column="2"
+                      Content="Free"
+                      IsChecked="{Binding ShowFreeOnly}"
+                      Margin="0,0,6,0"
+                      VerticalAlignment="Center" />
+            <Button Grid.Column="3"
+                    Command="{Binding LoadModelsCommand}"
+                    ToolTip.Tip="Refresh model list"
+                    MinWidth="36" Padding="8,4"
+                    VerticalAlignment="Center">
+                <!-- Circular-arrows refresh glyph (Segoe Fluent Icons) -->
+                <TextBlock Text="&#xE72C;"
+                           FontFamily="Segoe Fluent Icons,Segoe MDL2 Assets"
+                           FontSize="14" />
+            </Button>
+        </Grid>
+
+        <!-- Error message -->
+        <TextBlock Grid.Row="2" Text="{Binding ErrorMessage}"
+                   Foreground="Red" TextWrapping="Wrap"
+                   IsVisible="{Binding HasError}"
+                   Margin="0,0,0,6" />
+
+        <!-- Model list -->
+        <ListBox Grid.Row="3"
+                 ItemsSource="{Binding Models}"
+                 SelectedItem="{Binding SelectedModel}">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="models:ProviderModelInfo">
+                    <Border Padding="8,6" Margin="0,1">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Orientation="Vertical">
+                                <TextBlock Text="{Binding Name}"
+                                           FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Id}"
+                                           Classes="modelId" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1"
+                                       Classes="pricing"
+                                       VerticalAlignment="Center"
+                                       Text="{Binding PricingText}" />
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- Empty hint -->
+        <TextBlock Grid.Row="3"
+                   Text="{Binding EmptyMessage}"
+                   Foreground="Gray"
+                   FontSize="14"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   IsVisible="{Binding IsEmpty}" />
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+            <Button Content="Refresh" Command="{Binding LoadModelsCommand}"
+                    MinWidth="80" />
+            <Button Content="Select" Click="OnSelectClick"
+                    MinWidth="80"
+                    IsEnabled="{Binding HasSelection}" />
+            <Button Content="Cancel" Click="OnCancelClick"
+                    MinWidth="80" />
+        </StackPanel>
+    </Grid>
+</Window>

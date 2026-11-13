@@ -1,0 +1,19 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Image_Generator.Views.QuitConfirmDialog"
+        Title="Confirm"
+        Width="360" Height="150"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+    <StackPanel Margin="20" Spacing="16">
+        <TextBlock x:Name="MessageText"
+                   Text="Unsaved images, really quit?"
+                   FontSize="15"
+                   TextWrapping="Wrap" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Content="Yes" Click="OnYesClick" MinWidth="80" />
+            <Button Content="No" Click="OnNoClick" MinWidth="80" />
+        </StackPanel>
+    </StackPanel>
+</Window>

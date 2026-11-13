@@ -1,0 +1,99 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Image_Generator.ViewModels"
+        x:Class="Image_Generator.Views.ModelParametersDialog"
+        x:DataType="vm:ModelParametersDialogViewModel"
+        Title="Model Parameters"
+        Width="420"
+        SizeToContent="Height"
+        MaxWidth="480"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        CanResize="False">
+
+    <Grid RowDefinitions="*,Auto" Margin="16">
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" MaxHeight="420">
+            <StackPanel Spacing="10">
+
+                <!-- Per-window model override: defaults to the window's model,
+                     ellipsis opens the model browser. Changing it re-reads the
+                     new model's parameters from the API. -->
+                <Grid ColumnDefinitions="Auto,*,Auto" MinHeight="32">
+                    <TextBlock Grid.Column="0"
+                               Text="Model:"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0" />
+                    <TextBox Grid.Column="1"
+                             Text="{Binding GenerationModel}"
+                             IsReadOnly="True" />
+                    <Button Grid.Column="2"
+                            Content="⋯"
+                            Click="OnBrowseModel"
+                            ToolTip.Tip="Choose a different model for this image window"
+                            MinWidth="32" Padding="8,4"
+                            Margin="4,0,0,0" />
+                </Grid>
+
+                <TextBlock Text="Parameters for this model. Leave a value unset to use the model's default."
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,4" />
+
+                <TextBlock IsVisible="{Binding !HasRows}"
+                           Text="This model exposes no user-configurable parameters."
+                           TextWrapping="Wrap"
+                           FontStyle="Italic" />
+
+                <ProgressBar IsVisible="{Binding IsLoadingParameters}"
+                             IsIndeterminate="True"
+                             Height="4" />
+
+                <ItemsControl ItemsSource="{Binding Rows}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ModelParameterRowViewModel">
+                            <Grid ColumnDefinitions="24,140,*" MinHeight="32" Margin="0,4">
+                                <!-- Include-in-payload checkbox. Mandatory parameters
+                                     (resolution, aspect_ratio, …) are locked on. -->
+                                <CheckBox Grid.Column="0"
+                                          IsChecked="{Binding IsSelected}"
+                                          IsEnabled="{Binding IsCheckboxEnabled}"
+                                          VerticalAlignment="Center"
+                                          ToolTip.Tip="Include this parameter in the generation request" />
+
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding Descriptor.Name}"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap" />
+
+                                <!-- Enum parameter: dropdown of allowed values -->
+                                <ComboBox Grid.Column="2"
+                                          IsVisible="{Binding IsEnum}"
+                                          IsEnabled="{Binding IsControlEnabled}"
+                                          ItemsSource="{Binding EnumOptions}"
+                                          SelectedItem="{Binding SelectedEnum}" />
+
+                                <!-- Range / boolean parameter: validated textbox -->
+                                <StackPanel Grid.Column="2" IsVisible="{Binding !IsEnum}" Spacing="2">
+                                    <TextBox Text="{Binding TextValue}"
+                                             IsEnabled="{Binding IsControlEnabled}"
+                                             PlaceholderText="{Binding RangeHint}" />
+                                    <TextBlock Text="{Binding ValidationError}"
+                                               Foreground="Red"
+                                               FontSize="11"
+                                               IsVisible="{Binding HasValidationError}" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+            <Button Content="OK" Click="OnOkClick" MinWidth="80" />
+            <Button Content="Cancel" Click="OnCancelClick" MinWidth="80" />
+        </StackPanel>
+    </Grid>
+</Window>

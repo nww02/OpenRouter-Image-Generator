@@ -1,0 +1,70 @@
+## Build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+artifacts/
+
+## Rider / JetBrains
+.idea/
+*.sln.DotSettings.user
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+## Visual Studio
+.vs/
+*.rsuser
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]uilds/
+bld/
+[Ll]og/
+[Ll]ogs/
+
+## NuGet
+*.nupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## Test results
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+## Secrets & credentials — never commit API keys
+# Local config files (the app stores its real config in the OS app-data
+# folder, but exclude any that might end up in the repo)
+*.env
+.env*
+secrets.json
+appsettings.*.local.json
+**/preferences.json
+*.apikey
+*apikey*
+*api_key*
+credentials.json
+*.pem
+*.pfx
+
+## OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## Editor swap/backup files
+*.swp
+*.swo
+*~
+.*.kate-swp
+*.bak
+
+
+## Generated images & prompt metadata created while testing
+*.prompt.tmp

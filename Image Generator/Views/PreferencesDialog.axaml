@@ -1,0 +1,111 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Image_Generator.ViewModels"
+        x:Class="Image_Generator.Views.PreferencesDialog"
+        x:DataType="vm:PreferencesDialogViewModel"
+        Title="Preferences"
+        Width="520" Height="480"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        CanResize="False">
+
+    <Grid RowDefinitions="*,Auto" Margin="16">
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="12">
+                <!-- Theme -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Theme:" FontWeight="SemiBold" />
+                    <ComboBox ItemsSource="{Binding ThemeOptions}"
+                              SelectedItem="{Binding Theme}" />
+                </StackPanel>
+
+                <Separator />
+
+                <!-- Provider -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Provider:" FontWeight="SemiBold" />
+                    <ComboBox ItemsSource="{Binding AvailableProviders}"
+                              SelectedItem="{Binding SelectedProviderDescriptor}"
+                              DisplayMemberBinding="{Binding DisplayName}" />
+                </StackPanel>
+
+                <!-- OpenRouter-specific fields -->
+                <StackPanel Spacing="8" IsVisible="{Binding IsOpenRouter}">
+                    <TextBlock Text="OpenRouter Settings" FontWeight="Bold" FontSize="14" />
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="API Key:" />
+                        <TextBox Text="{Binding OpenRouterApiKey}" PasswordChar="*" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Image Generation Model:" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBox Grid.Column="0" Text="{Binding OpenRouterGenerationModel}" />
+                            <Button Grid.Column="1" Content="Browse..."
+                                    Click="OnBrowseGenerationModel"
+                                    Margin="4,0,0,0" />
+                        </Grid>
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Prompt Generation Model:" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBox Grid.Column="0" Text="{Binding OpenRouterPromptGenModel}" />
+                            <Button Grid.Column="1" Content="Browse..."
+                                    Click="OnBrowsePromptGenModel"
+                                    Margin="4,0,0,0" />
+                        </Grid>
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Vision / Image Analysis Model:" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBox Grid.Column="0" Text="{Binding OpenRouterVisionModel}" />
+                            <Button Grid.Column="1" Content="Browse..."
+                                    Click="OnBrowseVisionModel"
+                                    Margin="4,0,0,0" />
+                        </Grid>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Custom/Local provider fields -->
+                <StackPanel Spacing="8" IsVisible="{Binding IsCustomProvider}">
+                    <TextBlock Text="Custom Provider Settings" FontWeight="Bold" FontSize="14" />
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Provider Name:" />
+                        <TextBox Text="{Binding CustomProviderName}" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Base URL:" />
+                        <TextBox Text="{Binding CustomProviderBaseUrl}" PlaceholderText="http://localhost:11434/v1" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="API Key (optional):" />
+                        <TextBox Text="{Binding CustomProviderApiKey}" PasswordChar="*" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Generation Model:" />
+                        <TextBox Text="{Binding CustomGenerationModel}" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Vision Model:" />
+                        <TextBox Text="{Binding CustomVisionModel}" />
+                    </StackPanel>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+            <Button Content="Save" Click="OnSaveClick" MinWidth="80" />
+            <Button Content="Cancel" Click="OnCancelClick" MinWidth="80" />
+        </StackPanel>
+    </Grid>
+</Window>

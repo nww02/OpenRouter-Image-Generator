@@ -1,0 +1,58 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:Image_Generator.ViewModels"
+        mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
+        x:Class="Image_Generator.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="AI Image Generator"
+        Width="1100" Height="700"
+        WindowStartupLocation="CenterScreen">
+
+    <Panel>
+        <Grid RowDefinitions="Auto,*,Auto">
+            <Menu Grid.Row="0">
+                <MenuItem Header="_File">
+                    <MenuItem Header="_Load" Command="{Binding LoadCommand}" InputGesture="Ctrl+L" />
+                    <Separator />
+                    <MenuItem Header="_Quit" Command="{Binding QuitCommand}" InputGesture="Ctrl+Q" />
+                </MenuItem>
+                <MenuItem Header="_Edit">
+                    <MenuItem Header="_New Image" Command="{Binding NewImageCommand}" InputGesture="Ctrl+N" />
+                    <MenuItem Header="_Preferences..." Command="{Binding PreferencesCommand}" InputGesture="Ctrl+," />
+                </MenuItem>
+                <MenuItem Header="_About">
+                    <MenuItem Header="_About" Command="{Binding AboutCommand}" />
+                </MenuItem>
+            </Menu>
+
+            <DockControl Grid.Row="1"
+                         x:Name="DockControl"
+                         Factory="{Binding DockFactory}"
+                         Layout="{Binding Layout}" />
+
+            <!-- Status bar: balance (left), open windows (centre), session spend (right).
+                 Spend covers image generations, prompt building and image-to-prompt
+                 requests; it resets to zero on program load. -->
+            <Border Grid.Row="2"
+                    BorderBrush="Gray" BorderThickness="0,1,0,0"
+                    Padding="8,3"
+                    Background="{DynamicResource SystemRegionBrush}">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding BalanceText}"
+                               VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding WindowsText}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2"
+                               Text="{Binding SpentText}"
+                               HorizontalAlignment="Right"
+                               VerticalAlignment="Center" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Panel>
+</Window>

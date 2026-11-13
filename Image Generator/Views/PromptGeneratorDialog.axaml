@@ -1,0 +1,113 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Image_Generator.ViewModels"
+        x:Class="Image_Generator.Views.PromptGeneratorDialog"
+        x:DataType="vm:PromptGeneratorDialogViewModel"
+        Title="Prompt Generator"
+        Width="460"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        CanResize="False">
+
+    <StackPanel Margin="16" Spacing="10">
+
+        <!-- Humour -->
+        <Grid ColumnDefinitions="90,*">
+            <TextBlock Text="Humour:" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1"
+                      ItemsSource="{Binding HumourOptions}"
+                      SelectedItem="{Binding Humour}" />
+        </Grid>
+
+        <!-- Style -->
+        <Grid ColumnDefinitions="90,*">
+            <TextBlock Text="Style:" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1"
+                      ItemsSource="{Binding StyleOptions}"
+                      SelectedItem="{Binding Style}" />
+        </Grid>
+
+        <!-- Topic -->
+        <Grid ColumnDefinitions="90,*">
+            <TextBlock Text="Topic:" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1"
+                      ItemsSource="{Binding TopicOptions}"
+                      SelectedItem="{Binding Topic}" />
+        </Grid>
+
+        <!-- Colour -->
+        <Grid ColumnDefinitions="90,*">
+            <TextBlock Text="Colour:" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1"
+                      ItemsSource="{Binding ColourOptions}"
+                      SelectedItem="{Binding Colour}" />
+        </Grid>
+
+        <!-- Time of Day -->
+        <Grid ColumnDefinitions="90,*">
+            <TextBlock Text="Time of Day:" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1"
+                      ItemsSource="{Binding TimeOfDayOptions}"
+                      SelectedItem="{Binding TimeOfDay}" />
+        </Grid>
+
+        <!-- Mood -->
+        <Grid ColumnDefinitions="90,*">
+            <TextBlock Text="Mood:" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1"
+                      ItemsSource="{Binding MoodOptions}"
+                      SelectedItem="{Binding Mood}" />
+        </Grid>
+
+        <!-- Custom -->
+        <Grid ColumnDefinitions="90,*" MinHeight="50">
+            <TextBlock Text="Custom:" FontWeight="SemiBold"
+                       VerticalAlignment="Top"
+                       Padding="0,4,0,0" />
+            <TextBox Grid.Column="1"
+                     Text="{Binding CustomText}"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     MinHeight="50"
+                     MaxHeight="100"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     PlaceholderText="Custom instructions (optional)..." />
+        </Grid>
+
+        <!-- Generated prompt preview: read-only textbox so long prompts get a
+             vertical scrollbar instead of being clipped. -->
+        <Border IsVisible="{Binding HasGeneratedPrompt}"
+                BorderBrush="Gray" BorderThickness="1" CornerRadius="4"
+                Padding="8">
+            <StackPanel>
+                <TextBlock Text="Generated Prompt:"
+                           FontWeight="SemiBold" Margin="0,0,0,4" />
+                <TextBox Text="{Binding GeneratedPrompt}"
+                         IsReadOnly="True"
+                         TextWrapping="Wrap"
+                         MinHeight="40"
+                         MaxHeight="90"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Padding="0" />
+            </StackPanel>
+        </Border>
+
+        <!-- Buttons -->
+        <StackPanel Orientation="Horizontal"
+                    HorizontalAlignment="Right" Spacing="8">
+            <Button Content="Randomize" Command="{Binding RandomizeCommand}"
+                    MinWidth="80" />
+            <Button Content="Build Prompt" Command="{Binding BuildPromptCommand}"
+                    MinWidth="100"
+                    IsEnabled="{Binding !IsGenerating}" />
+            <Button Content="Use This" Click="OnUseThisClick"
+                    MinWidth="80"
+                    IsEnabled="{Binding HasGeneratedPrompt}" />
+            <Button Content="Cancel" Click="OnCancelClick"
+                    MinWidth="80" />
+        </StackPanel>
+    </StackPanel>
+</Window>

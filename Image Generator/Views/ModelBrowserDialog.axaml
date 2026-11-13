@@ -19,9 +19,20 @@
             <Setter Property="FontSize" Value="11" />
             <Setter Property="Foreground" Value="Gray" />
         </Style>
+        <!-- Clickable column headers: flat buttons with a subtle hover -->
+        <Style Selector="Button.sortHeader">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="4,2" />
+        </Style>
+        <Style Selector="Button.sortHeader:pointerover">
+            <Setter Property="Opacity" Value="0.7" />
+        </Style>
     </Window.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="12">
 
         <!-- Loading indicator -->
         <ProgressBar Grid.Row="0" IsIndeterminate="True"
@@ -59,8 +70,24 @@
                    IsVisible="{Binding HasError}"
                    Margin="0,0,0,6" />
 
+        <!-- Column headers: click to sort (arrow shows the active column/direction) -->
+        <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="12,2,12,4">
+            <Button Grid.Column="0"
+                    Classes="sortHeader"
+                    Content="{Binding NameSortHeader}"
+                    Click="OnSortNameClick"
+                    ToolTip.Tip="Sort by model name"
+                    HorizontalAlignment="Left" />
+            <Button Grid.Column="1"
+                    Classes="sortHeader"
+                    Content="{Binding PriceSortHeader}"
+                    Click="OnSortPriceClick"
+                    ToolTip.Tip="Sort by price: per-million-token output price for chat/vision models, per-image (or per-request) fee for image models"
+                    HorizontalAlignment="Right" />
+        </Grid>
+
         <!-- Model list -->
-        <ListBox Grid.Row="3"
+        <ListBox Grid.Row="4"
                  ItemsSource="{Binding Models}"
                  SelectedItem="{Binding SelectedModel}">
             <ListBox.ItemTemplate>
@@ -84,7 +111,7 @@
         </ListBox>
 
         <!-- Empty hint -->
-        <TextBlock Grid.Row="3"
+        <TextBlock Grid.Row="4"
                    Text="{Binding EmptyMessage}"
                    Foreground="Gray"
                    FontSize="14"
@@ -93,7 +120,7 @@
                    IsVisible="{Binding IsEmpty}" />
 
         <!-- Buttons -->
-        <StackPanel Grid.Row="4" Orientation="Horizontal"
+        <StackPanel Grid.Row="5" Orientation="Horizontal"
                     HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
             <Button Content="Refresh" Command="{Binding LoadModelsCommand}"
                     MinWidth="80" />

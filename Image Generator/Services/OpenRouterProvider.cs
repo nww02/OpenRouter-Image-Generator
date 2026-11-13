@@ -76,7 +76,8 @@ public class OpenRouterProvider : IImageGenerationProvider
                     pricing = new ModelPricing
                     {
                         PerImage = p.Image,
-                        PerToken = p.Prompt,
+                        PerInputToken = p.Prompt,
+                        PerOutputToken = p.Completion,
                         PerRequest = p.Request,
                         Currency = "USD"
                     };
@@ -86,7 +87,8 @@ public class OpenRouterProvider : IImageGenerationProvider
                     pricing = new ModelPricing
                     {
                         PerImage = entry.Pricing.Image,
-                        PerToken = entry.Pricing.Prompt,
+                        PerInputToken = entry.Pricing.Prompt,
+                        PerOutputToken = entry.Pricing.Completion,
                         PerRequest = entry.Pricing.Request,
                         Currency = "USD"
                     };
@@ -120,7 +122,8 @@ public class OpenRouterProvider : IImageGenerationProvider
                 var pricing = model.Pricing != null ? new ModelPricing
                 {
                     PerImage = model.Pricing.Image,
-                    PerToken = model.Pricing.Prompt,
+                    PerInputToken = model.Pricing.Prompt,
+                    PerOutputToken = model.Pricing.Completion,
                     PerRequest = model.Pricing.Request,
                     Currency = "USD"
                 } : null;
@@ -187,21 +190,7 @@ public class OpenRouterProvider : IImageGenerationProvider
     /// Formats model pricing for display.
     /// </summary>
     private static string FormatPricing(ModelPricing? pricing)
-    {
-        if (pricing is null) return "Free / Unknown";
-
-        var parts = new List<string>();
-        if (pricing.PerImage.HasValue && pricing.PerImage.Value > 0)
-            parts.Add($"${pricing.PerImage.Value:F4}/img");
-        if (pricing.PerMegapixel.HasValue && pricing.PerMegapixel.Value > 0)
-            parts.Add($"${pricing.PerMegapixel.Value:F4}/MP");
-        if (pricing.PerToken.HasValue && pricing.PerToken.Value > 0)
-            parts.Add($"${pricing.PerToken.Value:F6}/tok");
-        if (pricing.PerRequest.HasValue && pricing.PerRequest.Value > 0)
-            parts.Add($"${pricing.PerRequest.Value:F4}/req");
-
-        return parts.Count > 0 ? string.Join(" + ", parts) : "Free / Unknown";
-    }
+        => ModelPricingFormatter.Format(pricing);
 
     public async Task<ImageGenerationResult> GenerateImageAsync(string prompt, int width, int height, string model, string? apiKey, CancellationToken ct, IReadOnlyDictionary<string, object?>? parameters = null)
     {

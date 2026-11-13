@@ -28,6 +28,12 @@ public partial class ModelBrowserDialog : Window
         _viewModel.LoadModelsCommand.Execute(null);
     }
 
+    private void OnSortNameClick(object? sender, RoutedEventArgs e) =>
+        _viewModel?.SortBy(ModelSortColumn.Name);
+
+    private void OnSortPriceClick(object? sender, RoutedEventArgs e) =>
+        _viewModel?.SortBy(ModelSortColumn.Price);
+
     private void OnSelectClick(object? sender, RoutedEventArgs e)
     {
         if (_viewModel?.SelectedModel is not null)

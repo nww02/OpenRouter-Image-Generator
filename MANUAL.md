@@ -247,9 +247,17 @@ When opened, the browser loads automatically with the filter that matches
 what you're picking (Image Gen when choosing a generation model, Vision when
 choosing a vision model, and so on).
 
-Each row shows the model's display name, its ID, and its **pricing** (per
-image, per request and/or per token) on the right. Click a model to select it,
-then **Select** to use it — or **Cancel** to keep what you had.
+Each row shows the model's display name, its ID, and its **pricing** on the
+right — per image, per request, and/or token prices shown **per million
+tokens (MTok)** with input and output prices broken out where the model
+charges differently for each (e.g. `$2.5 in / $10 out per MTok`).
+
+The list has clickable **column headers**: click **Name** to sort
+alphabetically, or **Price** to sort by price — per-MTok output tokens for
+chat/vision models, the per-image (or per-request) fee for image models.
+Click the same header again to reverse the direction (the arrow shows which
+way); models with unknown pricing always sort last. Click a model to select
+it, then **Select** to use it — or **Cancel** to keep what you had.
 
 ![Model Browser — search, filter and browse all OpenRouter image models with pricing](https://raw.githubusercontent.com/nww02/OpenRouter-Image-Generator/refs/heads/master/Image%20Generator/Screenshots/Screenshot_20261113_011341.png)
 <br>
